@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { Rnd } from 'react-rnd'
 import './App.css'
 import {
   addElement,
+  alignElement,
   buildFileName,
-  buildSqlScript,
+  buildAlfaScanSqlScript,
   changeFontSize,
   centerElement,
   createDefaultDocument,
@@ -15,15 +16,16 @@ import {
   getElementDisplayValue,
   getElementName,
   getPaperFormat,
-  parseDocumentJson,
+  parseAlfaScanDocumentJson,
   paperFormats,
   removeElement,
   sampleData,
   scaleDocumentToFormat,
-  serializeDocument,
+  serializeAlfaScanDocument,
   STORAGE_KEY,
   toggleVisibility,
   updateElement,
+  stretchElement,
   type EditorElement,
   type FormatCode,
   type LabelDocument,
@@ -31,9 +33,36 @@ import {
 
 type ToastKind = 'idle' | 'success' | 'error'
 
+type ActivityLevel = 'info' | 'success' | 'error'
+
+interface ActivityEntry {
+  id: string
+  level: ActivityLevel
+  message: string
+  detail?: string
+}
+
 interface PersistedState {
   document: LabelDocument
   selectedId: string
+}
+
+function normalizeFormatCode(value: string): FormatCode {
+  switch (String(value ?? '').trim().toLowerCase()) {
+    case 'producto':
+      return 'product'
+    case 'chico':
+      return 'small'
+    case 'personalizado':
+      return 'custom'
+    case 'gondola':
+    case 'product':
+    case 'small':
+    case 'custom':
+      return String(value).trim().toLowerCase() as FormatCode
+    default:
+      return 'gondola'
+  }
 }
 
 function readStoredState(): PersistedState | null {
@@ -43,7 +72,13 @@ function readStoredState(): PersistedState | null {
   try {
     const parsed = JSON.parse(raw) as PersistedState
     if (!parsed?.document?.elementos) return null
-    return parsed
+    return {
+      ...parsed,
+      document: {
+        ...parsed.document,
+        codigo: normalizeFormatCode(parsed.document.codigo),
+      },
+    }
   } catch {
     return null
   }
@@ -77,16 +112,18 @@ function App() {
     kind: 'idle',
     message: '',
   })
+  const [activityLog, setActivityLog] = useState<ActivityEntry[]>([])
   const [customWidthMm, setCustomWidthMm] = useState(documentState.anchoPapelMm)
   const [customHeightMm, setCustomHeightMm] = useState(documentState.altoPapelMm)
+  const [isSavingSql, setIsSavingSql] = useState(false)
 
   const canvas = getCanvasSize(documentState)
   const effectiveSelectedId = documentState.elementos.some((element) => element.id === selectedId)
     ? selectedId
     : documentState.elementos[0]?.id ?? ''
   const selectedElement = getElementById(documentState, effectiveSelectedId)
-  const exportedJson = serializeDocument(documentState)
-  const sqlScript = buildSqlScript(documentState)
+  const exportedJson = serializeAlfaScanDocument(documentState)
+  const sqlScript = buildAlfaScanSqlScript(documentState)
 
   useEffect(() => {
     localStorage.setItem(
@@ -114,6 +151,17 @@ function App() {
     setToast({ kind, message })
   }
 
+  function pushActivity(level: ActivityLevel, message: string, detail?: string) {
+    const entry: ActivityEntry = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      level,
+      message,
+      detail,
+    }
+
+    setActivityLog((current) => [entry, ...current].slice(0, 8))
+  }
+
   function updateDocument(next: LabelDocument) {
     setDocumentState(next)
   }
@@ -124,11 +172,11 @@ function App() {
   }
 
   function handleFormatChange(codigo: FormatCode) {
-    if (codigo === documentState.codigo) return
+    if (normalizeFormatCode(codigo) === normalizeFormatCode(documentState.codigo)) return
 
     const nextFormat = getPaperFormat(codigo)
 
-    if (codigo === 'personalizado') {
+    if (codigo === 'custom') {
       const nextDocument = {
         ...documentState,
         codigo: nextFormat.codigo,
@@ -146,7 +194,7 @@ function App() {
   function handleCustomFormatUpdate(nextWidth: number, nextHeight: number) {
     const safeWidth = clamp(Math.round(nextWidth), 30, 200)
     const safeHeight = clamp(Math.round(nextHeight), 20, 240)
-    const format = getPaperFormat('personalizado')
+    const format = getPaperFormat('custom')
 
     setCustomWidthMm(safeWidth)
     setCustomHeightMm(safeHeight)
@@ -189,6 +237,16 @@ function App() {
     patchSelectedElement({ align })
   }
 
+  function handleFieldAlign(align: 'left' | 'center' | 'right') {
+    if (!selectedElement) return
+    updateDocument(alignElement(documentState, selectedElement.id, align))
+  }
+
+  function handleStretch() {
+    if (!selectedElement) return
+    updateDocument(stretchElement(documentState, selectedElement.id))
+  }
+
   async function copyJson() {
     await navigator.clipboard.writeText(exportedJson)
     notify('success', 'JSON copiado al portapapeles.')
@@ -204,6 +262,50 @@ function App() {
     notify('success', 'JSON descargado.')
   }
 
+  async function saveSql() {
+    setIsSavingSql(true)
+    try {
+      pushActivity('info', 'Enviando documento a SQL Server...', `${documentState.elementos.length} elementos`)
+      const response = await fetch('/api/sql/save', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          document: documentState,
+        }),
+      })
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+        reportId?: number
+        elementCount?: number
+        savedAt?: string
+      }
+
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || 'No se pudo guardar en SQL Server.')
+      }
+
+      const infoParts = [
+        `Id ${payload.reportId ?? 's/d'}`,
+        payload.elementCount != null ? `${payload.elementCount} elementos` : '',
+        payload.savedAt ? new Date(payload.savedAt).toLocaleString('es-AR') : '',
+      ].filter(Boolean)
+
+      const detail = infoParts.join(' · ')
+      pushActivity('success', 'Guardado en SQL Server', detail)
+      notify('success', `Guardado en SQL Server. ${detail}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo guardar en SQL Server.'
+      pushActivity('error', 'Error al guardar', message)
+      notify('error', message)
+    } finally {
+      setIsSavingSql(false)
+    }
+  }
+
   function downloadSql() {
     downloadTextFile(buildFileName(documentState, 'sql'), sqlScript, 'text/sql;charset=utf-8')
     notify('success', 'SQL descargado.')
@@ -211,7 +313,7 @@ function App() {
 
   function importJsonFromText() {
     try {
-      const next = parseDocumentJson(importText, getPaperFormat('gondola'))
+      const next = parseAlfaScanDocumentJson(importText, getPaperFormat('gondola'))
       updateDocument(next)
       setCustomWidthMm(next.anchoPapelMm)
       setCustomHeightMm(next.altoPapelMm)
@@ -228,7 +330,7 @@ function App() {
     reader.onload = () => {
       try {
         const text = typeof reader.result === 'string' ? reader.result : ''
-        const next = parseDocumentJson(text, getPaperFormat('gondola'))
+        const next = parseAlfaScanDocumentJson(text, getPaperFormat('gondola'))
         updateDocument(next)
         setCustomWidthMm(next.anchoPapelMm)
         setCustomHeightMm(next.altoPapelMm)
@@ -252,7 +354,7 @@ function App() {
     notify('success', 'Borrador guardado localmente.')
   }
 
-  const customFormatActive = documentState.codigo === 'personalizado'
+  const customFormatActive = normalizeFormatCode(documentState.codigo) === 'custom'
 
   return (
     <div className="app-shell">
@@ -268,14 +370,38 @@ function App() {
           <button className="ghost" type="button" onClick={saveToBrowser}>
             Guardar borrador
           </button>
-          <button className="primary" type="button" onClick={downloadJson}>
+          <button className="primary" type="button" onClick={saveSql} disabled={isSavingSql}>
+            {isSavingSql ? 'Guardando...' : 'Guardar en SQL'}
+          </button>
+          <button className="ghost" type="button" onClick={downloadJson}>
             Descargar JSON
           </button>
-          <button className="ghost" type="button" onClick={downloadSql}>
+          <button className="ghost" type="button" onClick={downloadSql} disabled={isSavingSql}>
             Descargar SQL
           </button>
         </div>
       </header>
+
+      <section className="save-status card">
+        <div className="card-head">
+          <h2>Estado de guardado</h2>
+          <span className={`pill ${isSavingSql ? 'pill-warn' : toast.kind === 'error' ? 'pill-error' : ''}`}>
+            {isSavingSql ? 'Guardando...' : toast.message || 'Listo'}
+          </span>
+        </div>
+        <div className="activity-log">
+          {activityLog.length === 0 ? (
+            <p className="helper-text">Todavía no hay eventos de guardado.</p>
+          ) : (
+            activityLog.map((entry) => (
+              <div key={entry.id} className={`activity-item level-${entry.level}`}>
+                <strong>{entry.message}</strong>
+                {entry.detail ? <span>{entry.detail}</span> : null}
+              </div>
+            ))
+          )}
+        </div>
+      </section>
 
       <main className="workspace">
         <aside className="panel left-panel">
@@ -573,42 +699,89 @@ function App() {
                     placeholder="Opcional"
                   />
                 </div>
-                <div className="toolbar-grid">
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => updateDocument(changeFontSize(documentState, selectedElement.id, 2))}
-                  >
-                    A+
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => updateDocument(changeFontSize(documentState, selectedElement.id, -2))}
-                  >
-                    A-
-                  </button>
-                  <button type="button" className="ghost" onClick={() => handleAlign('left')}>
-                    Izq.
-                  </button>
-                  <button type="button" className="ghost" onClick={() => handleAlign('center')}>
-                    Centro
-                  </button>
-                  <button type="button" className="ghost" onClick={() => handleAlign('right')}>
-                    Der.
-                  </button>
-                  <button type="button" className="ghost" onClick={handleCenter}>
-                    Centrar
-                  </button>
-                  <button type="button" className="ghost" onClick={handleDuplicate}>
-                    Duplicar
-                  </button>
-                  <button type="button" className="ghost" onClick={() => updateDocument(toggleVisibility(documentState, selectedElement.id))}>
-                    {selectedElement.visible ? 'Ocultar' : 'Mostrar'}
-                  </button>
-                  <button type="button" className="danger" onClick={handleDelete}>
-                    Eliminar
-                  </button>
+                <div className="ribbon">
+                  <div className="ribbon-section">
+                    <div className="ribbon-head">
+                      <strong>Texto</strong>
+                      <span>Letra del campo</span>
+                    </div>
+                    <div className="ribbon-actions">
+                      <button type="button" className="tool-button" title="Aumenta el tamaño de la letra del elemento seleccionado." onClick={() => updateDocument(changeFontSize(documentState, selectedElement.id, 2))}>
+                        <span className="tool-icon">A+</span>
+                        <span>Aumentar</span>
+                      </button>
+                      <button type="button" className="tool-button" title="Disminuye el tamaño de la letra del elemento seleccionado." onClick={() => updateDocument(changeFontSize(documentState, selectedElement.id, -2))}>
+                        <span className="tool-icon">A-</span>
+                        <span>Disminuir</span>
+                      </button>
+                      <button type="button" className="tool-button" title="Alinea el texto del campo a la izquierda." onClick={() => handleAlign('left')}>
+                        <span className="tool-icon">⟸</span>
+                        <span>Izquierda</span>
+                      </button>
+                      <button type="button" className="tool-button" title="Alinea el texto del campo al centro." onClick={() => handleAlign('center')}>
+                        <span className="tool-icon">≡</span>
+                        <span>Centro</span>
+                      </button>
+                      <button type="button" className="tool-button" title="Alinea el texto del campo a la derecha." onClick={() => handleAlign('right')}>
+                        <span className="tool-icon">⟹</span>
+                        <span>Derecha</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="ribbon-divider" />
+
+                  <div className="ribbon-section">
+                    <div className="ribbon-head">
+                      <strong>Bloque</strong>
+                      <span>Posición y tamaño</span>
+                    </div>
+                    <div className="ribbon-actions">
+                      <button type="button" className="tool-button" title="Mueve el bloque seleccionado hacia el lado izquierdo del papel." onClick={() => handleFieldAlign('left')}>
+                        <span className="tool-icon">◁</span>
+                        <span>Izquierda</span>
+                      </button>
+                      <button type="button" className="tool-button" title="Centra el bloque seleccionado dentro del papel." onClick={() => handleFieldAlign('center')}>
+                        <span className="tool-icon">◫</span>
+                        <span>Centro</span>
+                      </button>
+                      <button type="button" className="tool-button" title="Mueve el bloque seleccionado hacia el lado derecho del papel." onClick={() => handleFieldAlign('right')}>
+                        <span className="tool-icon">▷</span>
+                        <span>Derecha</span>
+                      </button>
+                      <button type="button" className="tool-button" title="Hace que el bloque ocupe todo el ancho útil del papel." onClick={handleStretch}>
+                        <span className="tool-icon">↔</span>
+                        <span>Estirar</span>
+                      </button>
+                      <button type="button" className="tool-button" title="Centra el bloque seleccionado en el medio exacto del papel." onClick={handleCenter}>
+                        <span className="tool-icon">◎</span>
+                        <span>Centrar</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="ribbon-divider" />
+
+                  <div className="ribbon-section">
+                    <div className="ribbon-head">
+                      <strong>Acciones</strong>
+                      <span>Duplicar, ocultar o borrar</span>
+                    </div>
+                    <div className="ribbon-actions">
+                      <button type="button" className="tool-button" onClick={handleDuplicate}>
+                        <span className="tool-icon">⧉</span>
+                        <span>Duplicar</span>
+                      </button>
+                      <button type="button" className="tool-button" onClick={() => updateDocument(toggleVisibility(documentState, selectedElement.id))}>
+                        <span className="tool-icon">👁</span>
+                        <span>{selectedElement.visible ? 'Ocultar' : 'Mostrar'}</span>
+                      </button>
+                      <button type="button" className="tool-button danger-tool" onClick={handleDelete}>
+                        <span className="tool-icon">🗑</span>
+                        <span>Eliminar</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </>
             ) : (
@@ -653,3 +826,6 @@ function App() {
 }
 
 export default App
+
+
+

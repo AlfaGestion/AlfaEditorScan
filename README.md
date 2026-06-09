@@ -1,6 +1,6 @@
 # AlfaEditorScan
 
-Editor web local para diseñar etiquetas compatibles con AlfaScan.
+Editor web local para diseñar etiquetas compatibles con AlfaScan y guardar layouts en SQL Server.
 
 ## Objetivo
 
@@ -9,7 +9,9 @@ Editor web local para diseñar etiquetas compatibles con AlfaScan.
 - `AlfaScan`: Android, React Native, Expo, Sunmi, escaneo e impresión.
 - `AlfaEditorScan`: Web, React, Vite, PC/Desktop, diseño de etiquetas y exportación.
 
-Este editor no imprime, no escanea, no usa Sunmi y no requiere servidor.
+Este editor no imprime, no escanea y no usa Sunmi.
+
+Para guardar directamente en SQL Server usa el API local incluido en este repo.
 
 ## Requisitos
 
@@ -46,6 +48,7 @@ http://localhost:5173
 - Exportar JSON.
 - Importar JSON.
 - Generar script SQL Server 2008+ para `dbo.Scan_Reporte` y `dbo.Scan_ReporteDetalle`.
+- Guardar directamente en SQL Server mediante el API local.
 - Guardar un borrador local en el navegador.
 
 ## Elementos soportados
@@ -95,7 +98,11 @@ El formato exportado sigue esta idea:
 
 ### 4. Generar SQL
 
-Usá `Descargar SQL` o `Copiar SQL`.
+Usá `Guardar en SQL`, `Descargar SQL` o `Copiar SQL`.
+
+`Guardar en SQL` conecta con el API local y escribe en la base de datos.
+
+`Descargar SQL` solo baja el script para revisarlo o archivarlo.
 
 El script se genera para una estructura compatible con:
 
@@ -114,6 +121,34 @@ El editor guarda automáticamente un borrador en `localStorage`.
 
 Si querés compartir o versionar el diseño, exportá el JSON y guardalo en disco.
 
+## Configuración SQL Server
+
+Creá o editá `.env.local` con estos datos:
+
+```env
+SQL_SERVER=N15WI3256FHD\ALFANET
+SQL_DATABASE=NANODISTRI
+SQL_USER=TU_USUARIO
+SQL_PASSWORD=TU_PASSWORD
+SQL_PORT=1433
+SQL_ENCRYPT=false
+SQL_TRUST_SERVER_CERTIFICATE=true
+SQL_API_PORT=3001
+```
+
+Luego ejecutá:
+
+```bash
+npm run dev
+```
+
+Eso levanta:
+
+- Vite en `http://localhost:5173`
+- API local en `http://127.0.0.1:3001`
+
+El botón `Guardar en SQL` usa ese API local para conectar a SQL Server.
+
 ## Roadmap
 
 - Fase 1: editor local, exportar JSON, generar SQL.
@@ -129,4 +164,3 @@ npm run dev
 npm run build
 npm run lint
 ```
-

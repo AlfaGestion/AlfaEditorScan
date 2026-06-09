@@ -2,7 +2,7 @@ export const MM_TO_PX = 4
 export const BASE_WIDTH_PX = 320
 export const BASE_HEIGHT_PX = 240
 
-export type FormatCode = 'gondola' | 'producto' | 'chico' | 'personalizado'
+export type FormatCode = 'gondola' | 'product' | 'small' | 'custom'
 export type ElementType =
   | 'empresa'
   | 'descripcion'
@@ -53,23 +53,23 @@ export interface EditorElement {
 }
 
 export interface SampleData {
-  empresa: string
-  descripcion: string
-  precio: string
-  codigoArticulo: string
-  codigoBarra: string
+  companyName: string
+  description: string
+  price: string
+  internalCode: string
+  barcode: string
   stock: string
-  fecha: string
+  date: string
 }
 
 export const sampleData: SampleData = {
-  empresa: 'Nano Distribuciones',
-  descripcion: 'Nivea Deo Aerosol B&W Fresh Sin Siliconas X 150 Ml.',
-  precio: '$ 1.805,00',
-  codigoArticulo: '10310',
-  codigoBarra: '4005900985712',
+  companyName: 'Nano Distribuciones',
+  description: 'Nivea Deo Aerosol B&W Fresh Sin Siliconas X 150 Ml.',
+  price: '$ 1.805,00',
+  internalCode: '10310',
+  barcode: '4005900985712',
   stock: '25',
-  fecha: new Intl.DateTimeFormat('es-AR').format(new Date()),
+  date: new Intl.DateTimeFormat('es-AR').format(new Date()),
 }
 
 export const paperFormats: PaperFormat[] = [
@@ -81,21 +81,21 @@ export const paperFormats: PaperFormat[] = [
     editable: false,
   },
   {
-    codigo: 'producto',
+    codigo: 'product',
     nombre: 'Producto',
     anchoPapelMm: 58,
     altoPapelMm: 40,
     editable: false,
   },
   {
-    codigo: 'chico',
+    codigo: 'small',
     nombre: 'Chico',
     anchoPapelMm: 40,
     altoPapelMm: 30,
     editable: false,
   },
   {
-    codigo: 'personalizado',
+    codigo: 'custom',
     nombre: 'Personalizado',
     anchoPapelMm: 80,
     altoPapelMm: 60,
@@ -478,6 +478,40 @@ export function centerElement(document: LabelDocument, elementId: string): Label
   })
 }
 
+export function alignElement(
+  document: LabelDocument,
+  elementId: string,
+  align: 'left' | 'center' | 'right',
+  marginPx = 16,
+): LabelDocument {
+  const canvas = getCanvasSize(document)
+  const element = getElementById(document, elementId)
+  if (!element) return document
+
+  const x =
+    align === 'left'
+      ? marginPx
+      : align === 'center'
+        ? round((canvas.widthPx - element.width) / 2)
+        : canvas.widthPx - element.width - marginPx
+
+  return updateElement(document, elementId, {
+    x: clamp(round(x), 0, Math.max(0, canvas.widthPx - element.width)),
+  })
+}
+
+export function stretchElement(document: LabelDocument, elementId: string, marginPx = 16): LabelDocument {
+  const canvas = getCanvasSize(document)
+  const element = getElementById(document, elementId)
+  if (!element) return document
+
+  const width = Math.max(24, canvas.widthPx - marginPx * 2)
+  return updateElement(document, elementId, {
+    x: marginPx,
+    width,
+  })
+}
+
 export function toggleVisibility(document: LabelDocument, elementId: string): LabelDocument {
   const element = getElementById(document, elementId)
   if (!element) return document
@@ -531,19 +565,19 @@ export function getElementName(tipo: ElementType): string {
 export function getElementDisplayValue(element: EditorElement, data: SampleData): string {
   switch (element.tipo) {
     case 'empresa':
-      return data.empresa
+      return data.companyName
     case 'descripcion':
-      return data.descripcion
+      return data.description
     case 'precio':
-      return data.precio
+      return data.price
     case 'codigoArticulo':
-      return data.codigoArticulo
+      return data.internalCode
     case 'codigoBarra':
-      return data.codigoBarra
+      return data.barcode
     case 'stock':
       return data.stock
     case 'fecha':
-      return data.fecha
+      return data.date
     case 'textoFijo':
       return element.text || 'Texto fijo'
     case 'logo':
@@ -644,59 +678,136 @@ export function buildSqlScript(document: LabelDocument): string {
 
   const detailRows = document.elementos
     .map((element, index) => {
-      const config = escapeSqlLiteral(JSON.stringify(element, null, 2))
-      return `  (@ReporteId, ${index + 1}, N'${escapeSqlLiteral(element.tipo)}', N'${escapeSqlLiteral(
-        element.nombre,
-      )}', ${round(element.x)}, ${round(element.y)}, ${round(element.width)}, ${round(
-        element.height,
-      )}, ${element.visible ? 1 : 0}, N'${config}')`
+      const campo = getDetalleCampo(element.tipo)
+      const textoFijo = getDetalleTextoFijo(element)
+      const alineacion = element.align || 'left'
+      const tipoElemento = escapeSqlLiteral(element.tipo)
+      const campoLiteral = campo ? `N'${escapeSqlLiteral(campo)}'` : 'NULL'
+      const textoFijoLiteral = textoFijo ? `N'${escapeSqlLiteral(textoFijo)}'` : 'NULL'
+
+      return `  (@ReporteId, N'${tipoElemento}', ${campoLiteral}, ${textoFijoLiteral}, ${round(
+        element.x,
+      )}, ${round(element.y)}, ${round(element.width)}, ${round(element.height)}, ${round(
+        element.fontSize,
+      )}, ${element.fontWeight === 'bold' ? 1 : 0}, N'${escapeSqlLiteral(
+        alineacion,
+      )}', ${element.visible ? 1 : 0}, ${index + 1}, ${getDetalleMaxLineas(element)}, 0, GETDATE())`
     })
     .join(',\n')
 
   return `SET NOCOUNT ON;
-DECLARE @ReporteCodigo NVARCHAR(50) = N'${reportCode}';
-DECLARE @ReporteNombre NVARCHAR(150) = N'${reportName}';
-DECLARE @PrintFormatsJson NVARCHAR(MAX) = N'${jsonLiteral}';
+DECLARE @Codigo NVARCHAR(50) = N'${reportCode}';
+DECLARE @Nombre NVARCHAR(100) = N'${reportName}';
+DECLARE @Descripcion NVARCHAR(250) = N'AlfaEditorScan';
+DECLARE @AnchoPapelMm INT = ${document.anchoPapelMm};
+DECLARE @AltoMm INT = ${document.altoPapelMm};
 DECLARE @ReporteId INT;
 
-MERGE dbo.Scan_Reporte AS destino
-USING (SELECT @ReporteCodigo AS Codigo) AS origen
-ON destino.Codigo = origen.Codigo
-WHEN MATCHED THEN
-  UPDATE SET
-    Nombre = @ReporteNombre,
-    AnchoPapelMm = ${document.anchoPapelMm},
-    AltoPapelMm = ${document.altoPapelMm},
-    PrintFormatsJson = @PrintFormatsJson,
-    FechaActualizacion = GETDATE()
-WHEN NOT MATCHED THEN
-  INSERT (Codigo, Nombre, AnchoPapelMm, AltoPapelMm, PrintFormatsJson, Activo, FechaActualizacion)
-  VALUES (@ReporteCodigo, @ReporteNombre, ${document.anchoPapelMm}, ${document.altoPapelMm}, @PrintFormatsJson, 1, GETDATE());
+IF EXISTS (SELECT 1 FROM dbo.Scan_Reporte WHERE Codigo = @Codigo)
+BEGIN
+  UPDATE dbo.Scan_Reporte
+  SET
+    Nombre = @Nombre,
+    Descripcion = @Descripcion,
+    AnchoPapelMm = @AnchoPapelMm,
+    AltoMm = @AltoMm,
+    Activo = 1,
+    EsPredeterminado = 0,
+    FechaModificacion = GETDATE()
+  WHERE Codigo = @Codigo;
+END
+ELSE
+BEGIN
+  INSERT INTO dbo.Scan_Reporte (
+    Codigo,
+    Nombre,
+    Descripcion,
+    AnchoPapelMm,
+    AltoMm,
+    Activo,
+    EsPredeterminado,
+    FechaAlta,
+    FechaModificacion
+  )
+  VALUES (
+    @Codigo,
+    @Nombre,
+    @Descripcion,
+    @AnchoPapelMm,
+    @AltoMm,
+    1,
+    0,
+    GETDATE(),
+    GETDATE()
+  );
+END
 
-SELECT @ReporteId = Id
+SELECT @ReporteId = IdReporte
 FROM dbo.Scan_Reporte
-WHERE Codigo = @ReporteCodigo;
+WHERE Codigo = @Codigo;
 
 DELETE FROM dbo.Scan_ReporteDetalle
 WHERE IdReporte = @ReporteId;
 
 INSERT INTO dbo.Scan_ReporteDetalle (
   IdReporte,
-  Orden,
-  Tipo,
-  Titulo,
+  TipoElemento,
+  Campo,
+  TextoFijo,
   X,
   Y,
   Ancho,
   Alto,
+  TamanoFuente,
+  Negrita,
+  Alineacion,
   Visible,
-  ConfigJson
+  Orden,
+  MaxLineas,
+  Mayuscula,
+  FechaModificacion
 )
 VALUES
 ${detailRows};
 
--- AlfaScan puede reutilizar el mismo JSON para PRINT_FORMATS_JSON.
+-- JSON de referencia para AlfaScan:
+-- ${jsonLiteral}
 `
+}
+
+function getDetalleCampo(tipo: ElementType): string | null {
+  switch (tipo) {
+    case 'empresa':
+      return 'empresa'
+    case 'descripcion':
+      return 'descripcion'
+    case 'precio':
+      return 'precio'
+    case 'codigoArticulo':
+      return 'codigoArticulo'
+    case 'codigoBarra':
+      return 'codigoBarra'
+    case 'stock':
+      return 'stock'
+    case 'fecha':
+      return 'fecha'
+    case 'textoFijo':
+    case 'linea':
+    case 'logo':
+      return null
+  }
+}
+
+function getDetalleTextoFijo(element: EditorElement): string | null {
+  if (element.tipo === 'textoFijo') return element.text || 'Texto fijo'
+  if (element.tipo === 'logo') return element.text || 'LOGO'
+  return null
+}
+
+function getDetalleMaxLineas(element: EditorElement): number {
+  if (element.tipo === 'descripcion') return 3
+  if (element.tipo === 'textoFijo') return 2
+  return 1
 }
 
 export function buildFileName(document: LabelDocument, extension: string): string {
@@ -708,4 +819,310 @@ export function buildFileName(document: LabelDocument, extension: string): strin
     .toLowerCase()
 
   return `${safeName || document.codigo}.${extension}`
+}
+
+type AlfaScanFormatCode = 'gondola' | 'product' | 'small' | 'custom'
+
+type AlfaScanFieldKey =
+  | 'companyName'
+  | 'description'
+  | 'price'
+  | 'internalCode'
+  | 'barcode'
+  | 'stock'
+  | 'date'
+  | 'textoFijo'
+  | 'linea'
+  | 'logo'
+
+type AlfaScanElementType = 'text' | 'barcode' | 'logo'
+
+function normalizeAlfaScanFormatCode(value: unknown): AlfaScanFormatCode {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (normalized === 'producto') return 'product'
+  if (normalized === 'chico') return 'small'
+  if (normalized === 'personalizado') return 'custom'
+  if (normalized === 'gondola' || normalized === 'product' || normalized === 'small' || normalized === 'custom') {
+    return normalized
+  }
+  return 'gondola'
+}
+
+function toAlfaScanFieldKey(tipo: ElementType): AlfaScanFieldKey | null {
+  switch (tipo) {
+    case 'empresa':
+      return 'companyName'
+    case 'descripcion':
+      return 'description'
+    case 'precio':
+      return 'price'
+    case 'codigoArticulo':
+      return 'internalCode'
+    case 'codigoBarra':
+      return 'barcode'
+    case 'stock':
+      return 'stock'
+    case 'fecha':
+      return 'date'
+    case 'textoFijo':
+      return 'textoFijo'
+    case 'linea':
+      return 'linea'
+    case 'logo':
+      return 'logo'
+  }
+}
+
+function toAlfaScanElementType(tipo: ElementType): AlfaScanElementType {
+  if (tipo === 'codigoBarra') return 'barcode'
+  if (tipo === 'logo') return 'logo'
+  return 'text'
+}
+
+function getAlfaScanSampleText(element: EditorElement): string {
+  if (element.tipo === 'textoFijo') return element.text || 'Texto fijo'
+  if (element.tipo === 'linea') return element.text || '────────'
+  if (element.tipo === 'logo') return element.text || 'ALFA'
+  return ''
+}
+
+function mapEditorElementToAlfaScan(element: EditorElement, index: number) {
+  const valueKey = toAlfaScanFieldKey(element.tipo) || `element_${index + 1}`
+  return {
+    key: valueKey,
+    label: getElementName(element.tipo),
+    type: toAlfaScanElementType(element.tipo),
+    visible: element.visible,
+    x: round(element.x),
+    y: round(element.y),
+    width: round(element.width),
+    height: round(element.height),
+    fontSize: round(element.fontSize),
+    fontWeight: element.fontWeight === 'bold' ? '700' : '400',
+    align: element.align,
+    color: element.color,
+    uppercase: false,
+    maxLines: getDetalleMaxLineas(element),
+    zIndex: index + 1,
+    sampleText: getAlfaScanSampleText(element),
+    valueKey,
+    formatAsPrice: element.tipo === 'precio',
+    showSymbol: element.tipo === 'precio',
+    decimals: 2,
+    thousandSeparator: true,
+    barcodeType: 'EAN13',
+    showNumber: true,
+  }
+}
+
+function mapAlfaScanElementToEditor(item: unknown, index: number): EditorElement {
+  const source = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
+  const key = String(source.key ?? source.valueKey ?? '').trim().toLowerCase()
+  const type = String(source.type ?? '').trim().toLowerCase()
+
+  const tipo: ElementType = (() => {
+    if (type === 'logo' || key === 'logo') return 'logo'
+    if (type === 'barcode' || key === 'barcode') return 'codigoBarra'
+    if (key === 'companyname' || key === 'company_name') return 'empresa'
+    if (key === 'description') return 'descripcion'
+    if (key === 'price') return 'precio'
+    if (key === 'internalcode' || key === 'codigoarticulo' || key === 'code') return 'codigoArticulo'
+    if (key === 'stock') return 'stock'
+    if (key === 'date' || key === 'fecha') return 'fecha'
+    if (key === 'linea' || key === 'line' || key === 'separator') return 'linea'
+    return 'textoFijo'
+  })()
+
+  const sampleText = String(source.sampleText ?? '').trim()
+
+  return {
+    id: typeof source.id === 'string' ? source.id : uid(`imported_${index}`),
+    tipo,
+    nombre: typeof source.label === 'string' ? source.label : getElementName(tipo),
+    x: toNumber(source.x, 20 + index * 12),
+    y: toNumber(source.y, 20 + index * 12),
+    width: Math.max(24, toNumber(source.width, 120)),
+    height: Math.max(12, toNumber(source.height, 24)),
+    fontSize: clamp(toNumber(source.fontSize, 14), 8, 80),
+    fontWeight: String(source.fontWeight ?? '400') === '700' ? 'bold' : 'normal',
+    align: source.align === 'center' || source.align === 'right' ? (source.align as TextAlign) : 'left',
+    visible: source.visible !== false,
+    color: typeof source.color === 'string' ? source.color : '#111827',
+    text:
+      tipo === 'textoFijo' || tipo === 'linea' || tipo === 'logo'
+        ? sampleText || String(source.text ?? '').trim()
+        : '',
+    imageUrl: typeof source.imageUrl === 'string' ? source.imageUrl : '',
+    lineHeight: clamp(toNumber(source.lineHeight, 1.15), 0.8, 2),
+  }
+}
+
+export function serializeAlfaScanDocument(document: LabelDocument): string {
+  const elements = document.elementos.map((element, index) => mapEditorElementToAlfaScan(element, index))
+  return JSON.stringify(
+    {
+      codigo: normalizeAlfaScanFormatCode(document.codigo),
+      nombre: document.nombre,
+      anchoPapelMm: document.anchoPapelMm,
+      altoPapelMm: document.altoPapelMm,
+      elements,
+      elementos: elements,
+    },
+    null,
+    2,
+  )
+}
+
+export function parseAlfaScanDocumentJson(source: string, fallbackFormat: PaperFormat): LabelDocument {
+  const parsed = JSON.parse(source) as Record<string, unknown>
+
+  if (Array.isArray(parsed.elements) || Array.isArray(parsed.elementos)) {
+    const elements: unknown[] = Array.isArray(parsed.elements)
+      ? (parsed.elements as unknown[])
+      : (parsed.elementos as unknown[])
+    const elementos = elements.map((item, index) => mapAlfaScanElementToEditor(item, index))
+    return {
+      codigo: normalizeAlfaScanFormatCode(parsed.codigo),
+      nombre: typeof parsed.nombre === 'string' ? parsed.nombre : fallbackFormat.nombre,
+      anchoPapelMm:
+        typeof parsed.anchoPapelMm === 'number' ? Number(parsed.anchoPapelMm) : fallbackFormat.anchoPapelMm,
+      altoPapelMm:
+        typeof parsed.altoPapelMm === 'number' ? Number(parsed.altoPapelMm) : fallbackFormat.altoPapelMm,
+      elementos,
+    }
+  }
+
+  const elementos = Array.isArray((parsed as { elementos?: unknown }).elementos)
+    ? (parsed as { elementos: unknown[] }).elementos.map((item, index) => normalizeElement(item, index))
+    : []
+
+  if (elementos.length === 0) {
+    throw new Error('El JSON no contiene elementos válidos.')
+  }
+
+  return {
+    codigo: normalizeAlfaScanFormatCode((parsed as { codigo?: unknown }).codigo),
+    nombre:
+      typeof (parsed as { nombre?: unknown }).nombre === 'string'
+        ? String((parsed as { nombre?: unknown }).nombre)
+        : fallbackFormat.nombre,
+    anchoPapelMm:
+      typeof (parsed as { anchoPapelMm?: unknown }).anchoPapelMm === 'number'
+        ? Number((parsed as { anchoPapelMm?: unknown }).anchoPapelMm)
+        : fallbackFormat.anchoPapelMm,
+    altoPapelMm:
+      typeof (parsed as { altoPapelMm?: unknown }).altoPapelMm === 'number'
+        ? Number((parsed as { altoPapelMm?: unknown }).altoPapelMm)
+        : fallbackFormat.altoPapelMm,
+    elementos,
+  }
+}
+
+export function buildAlfaScanSqlScript(document: LabelDocument): string {
+  const json = serializeAlfaScanDocument(document)
+  const jsonLiteral = escapeSqlLiteral(json)
+  const reportName = escapeSqlLiteral(document.nombre)
+  const reportCode = escapeSqlLiteral(normalizeAlfaScanFormatCode(document.codigo))
+  const detailRows = document.elementos
+    .map((element, index) => {
+      const fieldKey = toAlfaScanFieldKey(element.tipo)
+      const tipoElemento = toAlfaScanElementType(element.tipo)
+      const textoFijo =
+        element.tipo === 'textoFijo' || element.tipo === 'linea' || element.tipo === 'logo'
+          ? getAlfaScanSampleText(element)
+          : ''
+      const campoLiteral = fieldKey ? `N'${escapeSqlLiteral(fieldKey)}'` : 'NULL'
+      const textoFijoLiteral = textoFijo ? `N'${escapeSqlLiteral(textoFijo)}'` : 'NULL'
+      const align = element.align || 'left'
+
+      return `  (@ReporteId, N'${tipoElemento}', ${campoLiteral}, ${textoFijoLiteral}, ${round(
+        element.x,
+      )}, ${round(element.y)}, ${round(element.width)}, ${round(element.height)}, ${round(
+        element.fontSize,
+      )}, ${element.fontWeight === 'bold' ? 1 : 0}, N'${escapeSqlLiteral(
+        align,
+      )}', ${element.visible ? 1 : 0}, ${index + 1}, ${getDetalleMaxLineas(element)}, ${
+        element.tipo === 'textoFijo' || element.tipo === 'linea' ? 1 : 0
+      }, GETDATE())`
+    })
+    .join(',\n')
+
+  return `SET NOCOUNT ON;
+DECLARE @Codigo NVARCHAR(50) = N'${reportCode}';
+DECLARE @Nombre NVARCHAR(100) = N'${reportName}';
+DECLARE @Descripcion NVARCHAR(250) = N'AlfaEditorScan';
+DECLARE @AnchoPapelMm INT = ${document.anchoPapelMm};
+DECLARE @AltoMm INT = ${document.altoPapelMm};
+DECLARE @ReporteId INT;
+
+IF EXISTS (SELECT 1 FROM dbo.Scan_Reporte WHERE Codigo = @Codigo)
+BEGIN
+  UPDATE dbo.Scan_Reporte
+  SET
+    Nombre = @Nombre,
+    Descripcion = @Descripcion,
+    AnchoPapelMm = @AnchoPapelMm,
+    AltoMm = @AltoMm,
+    Activo = 1,
+    EsPredeterminado = 0,
+    FechaModificacion = GETDATE()
+  WHERE Codigo = @Codigo;
+END
+ELSE
+BEGIN
+  INSERT INTO dbo.Scan_Reporte (
+    Codigo,
+    Nombre,
+    Descripcion,
+    AnchoPapelMm,
+    AltoMm,
+    Activo,
+    EsPredeterminado,
+    FechaAlta,
+    FechaModificacion
+  )
+  VALUES (
+    @Codigo,
+    @Nombre,
+    @Descripcion,
+    @AnchoPapelMm,
+    @AltoMm,
+    1,
+    0,
+    GETDATE(),
+    GETDATE()
+  );
+END
+
+SELECT @ReporteId = IdReporte
+FROM dbo.Scan_Reporte
+WHERE Codigo = @Codigo;
+
+DELETE FROM dbo.Scan_ReporteDetalle
+WHERE IdReporte = @ReporteId;
+
+INSERT INTO dbo.Scan_ReporteDetalle (
+  IdReporte,
+  TipoElemento,
+  Campo,
+  TextoFijo,
+  X,
+  Y,
+  Ancho,
+  Alto,
+  TamanoFuente,
+  Negrita,
+  Alineacion,
+  Visible,
+  Orden,
+  MaxLineas,
+  Mayuscula,
+  FechaModificacion
+)
+VALUES
+${detailRows};
+
+-- JSON de referencia para AlfaScan:
+-- ${jsonLiteral}
+`
 }
