@@ -49,6 +49,13 @@ function text(res, statusCode, payload) {
   res.end(payload)
 }
 
+function errorPayload(error) {
+  return {
+    message: error instanceof Error ? error.message : 'Error desconocido.',
+    stack: error instanceof Error ? error.stack : undefined,
+  }
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = []
@@ -296,12 +303,16 @@ async function loadReportSnapshotByCodigo(codigo) {
         ORDER BY Orden ASC, IdDetalle ASC;
       `)
 
+    const details = Array.isArray(detailResult.recordset)
+      ? detailResult.recordset.map((row, index) => rowToVerificationDetail(row, index))
+      : []
+
     return {
       codigo: normalizeReportCode(report.Codigo),
       nombre: typeof report.Nombre === 'string' ? report.Nombre : 'Gondola',
       anchoPapelMm: toNumber(report.AnchoPapelMm, 80),
       altoMm: toNumber(report.AltoMm, 60),
-      detalles: detailResult.recordset.map((row, index) => rowToVerificationDetail(row, index)),
+      detalles: details,
     }
   } finally {
     await pool.close()
@@ -525,7 +536,7 @@ const server = http.createServer(async (req, res) => {
       log('GET /api/sql/report failed', error instanceof Error ? error.message : error)
       json(res, 500, {
         ok: false,
-        error: error instanceof Error ? error.message : 'Error desconocido.',
+        ...errorPayload(error),
       })
     }
     return
@@ -541,7 +552,7 @@ const server = http.createServer(async (req, res) => {
       log('POST /api/sql/save failed', error instanceof Error ? error.message : error)
       json(res, 500, {
         ok: false,
-        error: error instanceof Error ? error.message : 'Error desconocido.',
+        ...errorPayload(error),
       })
     }
     return
