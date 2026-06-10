@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
 import { Rnd } from 'react-rnd'
 import './App.css'
+import heroLogo from './assets/hero.png'
 import {
   addElement,
   alignElement,
@@ -34,6 +35,7 @@ import {
 type ToastKind = 'idle' | 'success' | 'error'
 
 type ActivityLevel = 'info' | 'success' | 'error'
+type ThemeMode = 'light' | 'dark'
 
 interface ActivityEntry {
   id: string
@@ -46,6 +48,8 @@ interface PersistedState {
   document: LabelDocument
   selectedId: string
 }
+
+const THEME_STORAGE_KEY = 'alfa-editor-scan:theme'
 
 function normalizeFormatCode(value: string): FormatCode {
   switch (String(value ?? '').trim().toLowerCase()) {
@@ -65,6 +69,25 @@ function normalizeFormatCode(value: string): FormatCode {
   }
 }
 
+function readStoredTheme(): ThemeMode {
+  const raw = localStorage.getItem(THEME_STORAGE_KEY)
+  if (raw === 'dark' || raw === 'light') return raw
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function normalizeStoredDocument(document: LabelDocument): LabelDocument {
+  return {
+    ...document,
+    codigo: normalizeFormatCode(document.codigo),
+    elementos: (document.elementos || []).map((element) => ({
+      ...element,
+      fontStyle: element.fontStyle === 'italic' ? 'italic' : 'normal',
+      underline: Boolean(element.underline),
+      fontFamily: element.fontFamily || 'Aptos, Segoe UI, Arial, sans-serif',
+    })),
+  }
+}
+
 function readStoredState(): PersistedState | null {
   const raw = localStorage.getItem(STORAGE_KEY)
   if (!raw) return null
@@ -74,10 +97,7 @@ function readStoredState(): PersistedState | null {
     if (!parsed?.document?.elementos) return null
     return {
       ...parsed,
-      document: {
-        ...parsed.document,
-        codigo: normalizeFormatCode(parsed.document.codigo),
-      },
+      document: normalizeStoredDocument(parsed.document),
     }
   } catch {
     return null
@@ -100,6 +120,7 @@ function clamp(value: number, min: number, max: number) {
 
 function App() {
   const stored = useMemo(() => readStoredState(), [])
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredTheme())
 
   const [documentState, setDocumentState] = useState<LabelDocument>(
     stored?.document ?? createDefaultDocument('gondola'),
@@ -146,6 +167,11 @@ function App() {
   useEffect(() => {
     document.title = `AlfaEditorScan · ${documentState.nombre}`
   }, [documentState.nombre])
+
+  useEffect(() => {
+    localStorage.setItem(THEME_STORAGE_KEY, themeMode)
+    document.documentElement.dataset.theme = themeMode
+  }, [themeMode])
 
   function notify(kind: ToastKind, message: string) {
     setToast({ kind, message })
@@ -355,18 +381,44 @@ function App() {
   }
 
   const customFormatActive = normalizeFormatCode(documentState.codigo) === 'custom'
+  const isTextEditable = Boolean(selectedElement && selectedElement.tipo !== 'linea' && selectedElement.tipo !== 'logo')
+  const themeLabel = themeMode === 'dark' ? 'Modo oscuro' : 'Modo claro'
+
+  const toggleTheme = () => {
+    setThemeMode((current) => (current === 'dark' ? 'light' : 'dark'))
+  }
+
+  const setSelectedFontWeight = (nextWeight: 'normal' | 'bold') => {
+    if (!selectedElement) return
+    patchSelectedElement({ fontWeight: nextWeight })
+  }
+
+  const setSelectedFontStyle = (nextStyle: 'normal' | 'italic') => {
+    if (!selectedElement) return
+    patchSelectedElement({ fontStyle: nextStyle })
+  }
+
+  const setSelectedUnderline = (value: boolean) => {
+    if (!selectedElement) return
+    patchSelectedElement({ underline: value })
+  }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme={themeMode}>
       <header className="topbar">
         <div className="brand-block">
-          <div className="brand-mark">AE</div>
+          <div className="brand-mark">
+            <img src={heroLogo} alt="AlfaScan" />
+          </div>
           <div>
             <p className="eyebrow">AlfaEditorScan</p>
             <h1>Editor de etiquetas local</h1>
           </div>
         </div>
         <div className="topbar-actions">
+          <button className="ghost" type="button" onClick={toggleTheme}>
+            {themeLabel}
+          </button>
           <button className="ghost" type="button" onClick={saveToBrowser}>
             Guardar borrador
           </button>
@@ -572,6 +624,9 @@ function App() {
                         color: element.color,
                         fontSize: element.fontSize,
                         fontWeight: element.fontWeight,
+                        fontStyle: element.fontStyle,
+                        textDecoration: element.underline ? 'underline' : 'none',
+                        fontFamily: element.fontFamily,
                         textAlign: element.align,
                         lineHeight: element.lineHeight,
                       }}
@@ -609,6 +664,87 @@ function App() {
             </div>
             {selectedElement ? (
               <>
+                {isTextEditable ? (
+                  <section className="text-toolbar">
+                    <div className="text-toolbar-row">
+                      <label className="toolbar-field toolbar-field-wide">
+                        <span>Fuente</span>
+                        <select
+                          value={selectedElement.fontFamily}
+                          onChange={(event) => patchSelectedElement({ fontFamily: event.target.value })}
+                        >
+                          <option value="Aptos, Segoe UI, Arial, sans-serif">Aptos</option>
+                          <option value="Segoe UI, Arial, sans-serif">Segoe UI</option>
+                          <option value="Arial, sans-serif">Arial</option>
+                          <option value="Georgia, serif">Georgia</option>
+                          <option value="'Times New Roman', serif">Times New Roman</option>
+                          <option value="'Courier New', monospace">Courier New</option>
+                        </select>
+                      </label>
+
+                      <label className="toolbar-field toolbar-field-narrow">
+                        <span>Tamaño</span>
+                        <div className="number-stepper">
+                          <button type="button" className="stepper-button" onClick={() => updateDocument(changeFontSize(documentState, selectedElement.id, -2))}>
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            min={8}
+                            max={80}
+                            value={selectedElement.fontSize}
+                            onChange={(event) => patchSelectedElement({ fontSize: Number(event.target.value) })}
+                          />
+                          <button type="button" className="stepper-button" onClick={() => updateDocument(changeFontSize(documentState, selectedElement.id, 2))}>
+                            +
+                          </button>
+                        </div>
+                      </label>
+                    </div>
+
+                    <div className="text-toolbar-row toolbar-buttons-row">
+                      <button
+                        type="button"
+                        className={`tool-button tool-button-inline ${selectedElement.fontWeight === 'bold' ? 'is-active' : ''}`}
+                        onClick={() => setSelectedFontWeight(selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}
+                        title="Activar o desactivar negrita."
+                      >
+                        <span className="tool-icon">B</span>
+                        <span>Negrita</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`tool-button tool-button-inline ${selectedElement.fontStyle === 'italic' ? 'is-active' : ''}`}
+                        onClick={() => setSelectedFontStyle(selectedElement.fontStyle === 'italic' ? 'normal' : 'italic')}
+                        title="Activar o desactivar cursiva."
+                      >
+                        <span className="tool-icon">I</span>
+                        <span>Cursiva</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`tool-button tool-button-inline ${selectedElement.underline ? 'is-active' : ''}`}
+                        onClick={() => setSelectedUnderline(!selectedElement.underline)}
+                        title="Activar o desactivar subrayado."
+                      >
+                        <span className="tool-icon">U</span>
+                        <span>Subrayado</span>
+                      </button>
+                      <button type="button" className="tool-button tool-button-inline" title="Alinear texto a la izquierda." onClick={() => handleAlign('left')}>
+                        <span className="tool-icon">⟸</span>
+                        <span>Izquierda</span>
+                      </button>
+                      <button type="button" className="tool-button tool-button-inline" title="Centrar texto." onClick={() => handleAlign('center')}>
+                        <span className="tool-icon">≡</span>
+                        <span>Centro</span>
+                      </button>
+                      <button type="button" className="tool-button tool-button-inline" title="Alinear texto a la derecha." onClick={() => handleAlign('right')}>
+                        <span className="tool-icon">⟹</span>
+                        <span>Derecha</span>
+                      </button>
+                    </div>
+                  </section>
+                ) : null}
                 <div className="field">
                   <label htmlFor="element-name">Nombre</label>
                   <input

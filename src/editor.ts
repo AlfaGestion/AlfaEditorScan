@@ -44,6 +44,9 @@ export interface EditorElement {
   height: number
   fontSize: number
   fontWeight: FontWeight
+  fontStyle: 'normal' | 'italic'
+  underline: boolean
+  fontFamily: string
   align: TextAlign
   visible: boolean
   color: string
@@ -122,6 +125,9 @@ const defaultElementStyles = {
   color: '#111827',
   fontSize: 16,
   fontWeight: 'bold' as FontWeight,
+  fontStyle: 'normal' as const,
+  underline: false,
+  fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
   align: 'left' as TextAlign,
   visible: true,
   lineHeight: 1.1,
@@ -189,6 +195,9 @@ function baseElements(): EditorElement[] {
       text: 'LOGO',
       imageUrl: '',
       lineHeight: 1,
+      fontStyle: 'normal',
+      underline: false,
+      fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
       id: uid(),
@@ -206,6 +215,9 @@ function baseElements(): EditorElement[] {
       text: '',
       imageUrl: '',
       lineHeight: 1,
+      fontStyle: 'normal',
+      underline: false,
+      fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
       id: uid(),
@@ -223,6 +235,9 @@ function baseElements(): EditorElement[] {
       text: '',
       imageUrl: '',
       lineHeight: 1.2,
+      fontStyle: 'normal',
+      underline: false,
+      fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
       id: uid(),
@@ -240,6 +255,9 @@ function baseElements(): EditorElement[] {
       text: '',
       imageUrl: '',
       lineHeight: 1,
+      fontStyle: 'normal',
+      underline: false,
+      fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
       id: uid(),
@@ -257,6 +275,9 @@ function baseElements(): EditorElement[] {
       text: '',
       imageUrl: '',
       lineHeight: 1,
+      fontStyle: 'normal',
+      underline: false,
+      fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
       id: uid(),
@@ -274,6 +295,9 @@ function baseElements(): EditorElement[] {
       text: '',
       imageUrl: '',
       lineHeight: 1,
+      fontStyle: 'normal',
+      underline: false,
+      fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
       id: uid(),
@@ -291,6 +315,9 @@ function baseElements(): EditorElement[] {
       text: '',
       imageUrl: '',
       lineHeight: 1,
+      fontStyle: 'normal',
+      underline: false,
+      fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
       id: uid(),
@@ -308,6 +335,9 @@ function baseElements(): EditorElement[] {
       text: '',
       imageUrl: '',
       lineHeight: 1,
+      fontStyle: 'normal',
+      underline: false,
+      fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
   ]
 }
@@ -351,7 +381,7 @@ export function scaleDocumentToFormat(
 
 function createElementDefaults(tipo: ElementType, index: number): EditorElement {
   const offset = index * 12
-  const common = {
+  const common: EditorElement = {
     id: uid(),
     tipo,
     nombre: getElementName(tipo),
@@ -367,6 +397,9 @@ function createElementDefaults(tipo: ElementType, index: number): EditorElement 
     text: '',
     imageUrl: '',
     lineHeight: 1.15,
+    fontStyle: 'normal',
+    underline: false,
+    fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
   }
 
   switch (tipo) {
@@ -395,6 +428,9 @@ function createElementDefaults(tipo: ElementType, index: number): EditorElement 
         fontWeight: 'normal',
         color: '#0f172a',
         lineHeight: 1,
+        fontStyle: 'normal',
+        underline: false,
+        fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
       }
     case 'logo':
       return {
@@ -406,6 +442,9 @@ function createElementDefaults(tipo: ElementType, index: number): EditorElement 
         align: 'center',
         text: 'LOGO',
         color: '#0f172a',
+        fontStyle: 'normal',
+        underline: false,
+        fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
       }
     default:
       return common
@@ -642,6 +681,12 @@ function normalizeElement(value: unknown, index: number): EditorElement {
     height: Math.max(12, toNumber(item.height, 24)),
     fontSize: clamp(toNumber(item.fontSize, 14), 8, 80),
     fontWeight: item.fontWeight === 'normal' ? 'normal' : 'bold',
+    fontStyle: item.fontStyle === 'italic' ? 'italic' : 'normal',
+    underline: item.underline === true,
+    fontFamily:
+      typeof item.fontFamily === 'string' && item.fontFamily.trim()
+        ? item.fontFamily
+        : 'Aptos, Segoe UI, Arial, sans-serif',
     align: item.align === 'center' || item.align === 'right' ? item.align : 'left',
     visible: item.visible !== false,
     color: typeof item.color === 'string' ? item.color : '#111827',
@@ -899,6 +944,9 @@ function mapEditorElementToAlfaScan(element: EditorElement, index: number) {
     height: round(element.height),
     fontSize: round(element.fontSize),
     fontWeight: element.fontWeight === 'bold' ? '700' : '400',
+    fontStyle: element.fontStyle,
+    underline: element.underline,
+    fontFamily: element.fontFamily,
     align: element.align,
     color: element.color,
     uppercase: false,
@@ -945,6 +993,12 @@ function mapAlfaScanElementToEditor(item: unknown, index: number): EditorElement
     height: Math.max(12, toNumber(source.height, 24)),
     fontSize: clamp(toNumber(source.fontSize, 14), 8, 80),
     fontWeight: String(source.fontWeight ?? '400') === '700' ? 'bold' : 'normal',
+    fontStyle: String(source.fontStyle ?? 'normal') === 'italic' ? 'italic' : 'normal',
+    underline: source.underline === true,
+    fontFamily:
+      typeof source.fontFamily === 'string' && source.fontFamily.trim()
+        ? source.fontFamily
+        : 'Aptos, Segoe UI, Arial, sans-serif',
     align: source.align === 'center' || source.align === 'right' ? (source.align as TextAlign) : 'left',
     visible: source.visible !== false,
     color: typeof source.color === 'string' ? source.color : '#111827',
