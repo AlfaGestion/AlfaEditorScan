@@ -70,6 +70,17 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback
 }
 
+function normalizeFormatCode(value) {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (normalized === 'producto') return 'product'
+  if (normalized === 'chico') return 'small'
+  if (normalized === 'personalizado') return 'custom'
+  if (normalized === 'gondola' || normalized === 'product' || normalized === 'small' || normalized === 'custom') {
+    return normalized
+  }
+  return 'gondola'
+}
+
 function isElementType(value) {
   return (
     value === 'empresa' ||
@@ -148,7 +159,7 @@ function normalizeDocument(document) {
   }
 
   return {
-    codigo: typeof document.codigo === 'string' ? document.codigo : 'gondola',
+    codigo: normalizeFormatCode(document.codigo),
     nombre: typeof document.nombre === 'string' ? document.nombre : 'Gondola',
     anchoPapelMm: toNumber(document.anchoPapelMm, 80),
     altoPapelMm: toNumber(document.altoPapelMm, 60),
@@ -275,7 +286,7 @@ async function saveDocumentToSqlServer(document) {
     const request = new sql.Request(transaction)
     request.input('Codigo', sql.NVarChar(50), normalized.codigo)
     request.input('Nombre', sql.NVarChar(100), normalized.nombre)
-    request.input('Descripcion', sql.NVarChar(250), `Layout generado desde AlfaEditorScan`)
+    request.input('Descripcion', sql.NVarChar(250), `Layout generado desde EditorScan`)
     request.input('AnchoPapelMm', sql.Int, normalized.anchoPapelMm)
     request.input('AltoMm', sql.Int, normalized.altoPapelMm)
 

@@ -787,7 +787,7 @@ export function buildSqlScript(document: LabelDocument): string {
   return `SET NOCOUNT ON;
 DECLARE @Codigo NVARCHAR(50) = N'${reportCode}';
 DECLARE @Nombre NVARCHAR(100) = N'${reportName}';
-DECLARE @Descripcion NVARCHAR(250) = N'AlfaEditorScan';
+DECLARE @Descripcion NVARCHAR(250) = N'EditorScan';
 DECLARE @AnchoPapelMm INT = ${document.anchoPapelMm};
 DECLARE @AltoMm INT = ${document.altoPapelMm};
 DECLARE @ReporteId INT;
@@ -1151,7 +1151,7 @@ export function buildAlfaScanSqlScript(document: LabelDocument): string {
   return `SET NOCOUNT ON;
 DECLARE @Codigo NVARCHAR(50) = N'${reportCode}';
 DECLARE @Nombre NVARCHAR(100) = N'${reportName}';
-DECLARE @Descripcion NVARCHAR(250) = N'AlfaEditorScan';
+DECLARE @Descripcion NVARCHAR(250) = N'EditorScan';
 DECLARE @AnchoPapelMm INT = ${document.anchoPapelMm};
 DECLARE @AltoMm INT = ${document.altoPapelMm};
 DECLARE @ReporteId INT;

@@ -14,7 +14,6 @@ import {
   getPaperFormat,
   paperFormats,
   removeElement,
-  sampleData,
   scaleDocumentToFormat,
   STORAGE_KEY,
   toggleVisibility,
@@ -22,6 +21,7 @@ import {
   type EditorElement,
   type FormatCode,
   type LabelDocument,
+  type SampleData,
 } from './editor'
 
 type ToastKind = 'idle' | 'success' | 'error'
@@ -76,7 +76,7 @@ const previewCatalog: PreviewProduct[] = [
   },
 ]
 
-function toPreviewSample(product: PreviewProduct): typeof sampleData {
+function toPreviewSample(product: PreviewProduct): SampleData {
   return {
     companyName: product.companyName,
     description: product.description,
@@ -390,13 +390,7 @@ function App() {
     patchSelectedElement({ fontSize: nextSize })
   }
 
-  function renderElementNode(
-    element: EditorElement,
-    index: number,
-    data: typeof sampleData,
-    interactive: boolean,
-    scale = 1,
-  ) {
+  function renderElementNode(element: EditorElement, index: number, data: SampleData, interactive: boolean, scale = 1) {
     const hiddenClass = element.visible ? '' : 'is-hidden'
     const isSelected = interactive && element.id === selectedId
 
@@ -566,9 +560,7 @@ function App() {
                 />
               </div>
             </div>
-            <p className="helper-text">
-              1 mm = 4 px. La vista previa usa el mismo mapeo que AlfaScan.
-            </p>
+              <p className="helper-text">1 mm = 4 px. El canvas usa el mismo modelo visual que la vista previa.</p>
           </section>
 
           <section className="card">
@@ -738,7 +730,7 @@ function App() {
                   transform: `scale(${editorZoom})`,
                 }}
               >
-                      {documentState.elementos.map((element, index) => renderElementNode(element, index, sampleData, true))}
+                      {documentState.elementos.map((element, index) => renderElementNode(element, index, previewData, true))}
               </div>
             </div>
 
