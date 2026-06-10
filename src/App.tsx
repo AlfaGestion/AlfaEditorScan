@@ -4,13 +4,13 @@ import './App.css'
 import heroLogo from './assets/hero.png'
 import {
   addElement,
+  buildAlfaScanLayout,
   buildSqlVerificationSnapshot,
   createDefaultDocument,
   duplicateElement,
   elementPalette,
   getCanvasSize,
   getElementById,
-  getElementDisplayValue,
   getElementName,
   getPaperFormat,
   paperFormats,
@@ -18,6 +18,7 @@ import {
   STORAGE_KEY,
   toggleVisibility,
   updateElement,
+  type AlfaScanLayoutItem,
   type EditorElement,
   type FormatCode,
   type LabelDocument,
@@ -277,10 +278,18 @@ function App() {
   const selectedPreviewProduct =
     filteredPreviewProducts.find((product) => product.id === selectedPreviewId) ?? filteredPreviewProducts[0] ?? previewCatalog[0]
   const previewData = toPreviewSample(selectedPreviewProduct)
+  const alfaScanLayout = useMemo(() => buildAlfaScanLayout(documentState, previewData), [documentState, previewData])
   const customFormatActive = normalizeFormatCode(documentState.codigo) === 'custom'
   const themeLabel = themeMode === 'dark' ? 'Modo oscuro' : 'Modo claro'
   const currentZoom = viewMode === 'editor' ? editorZoom : previewZoom
   const zoomLabel = `${Math.round(currentZoom * 100)}%`
+  const editorLayoutLog = useMemo(
+    () => [
+      `[EDITOR_LAYOUT] items ${alfaScanLayout.items.length}`,
+      ...alfaScanLayout.items.map((item) => `[EDITOR_LAYOUT] ${item.campo} visible ${item.visible}`),
+    ],
+    [alfaScanLayout],
+  )
 
   useEffect(() => {
     localStorage.setItem(
@@ -541,7 +550,7 @@ function App() {
       } = {}
 
       try {
-        const verifyResponse = await fetch(`/api/sql/report?codigo=${encodeURIComponent(normalizeFormatCode(documentState.codigo))}`)
+        const verifyResponse = await fetch(`/api/sql/report?codigo=${encodeURIComponent(documentState.codigo)}`)
         verifyPayload = (await verifyResponse.json().catch(() => ({}))) as typeof verifyPayload
 
         if (!verifyResponse.ok || verifyPayload.ok === false || !verifyPayload.report) {
@@ -605,7 +614,7 @@ function App() {
     patchSelectedElement({ fontSize: nextSize })
   }
 
-  function renderElementNode(element: EditorElement, index: number, data: SampleData, interactive: boolean, scale = 1) {
+  function renderElementNode(element: AlfaScanLayoutItem, index: number, interactive: boolean, scale = 1) {
     const hiddenClass = element.visible ? '' : 'is-hidden'
     const isSelected = interactive && element.id === selectedId
 
@@ -632,18 +641,18 @@ function App() {
         ) : (
           <>
             <span className="element-label">{getElementName(element.tipo)}</span>
-                        <span
+            <span
               className="element-value"
               style={{
-                display: "-webkit-box",
+                display: '-webkit-box',
                 WebkitLineClamp: element.maxLineas,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-                whiteSpace: "normal",
-                wordBreak: "break-word",
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                whiteSpace: 'normal',
+                wordBreak: 'break-word',
               }}
             >
-              {getElementDisplayValue(element, data)}
+              {element.displayValue}
             </span>
           </>
         )}
@@ -808,6 +817,15 @@ function App() {
                 </button>
               ))}
             </div>
+          </section>
+          <section className="card layout-log-card">
+            <div className="card-head">
+              <h2>Layout SQL</h2>
+              <span className="pill">{alfaScanLayout.items.length}</span>
+            </div>
+            <pre className="layout-log" aria-label="Log de layout">
+              {editorLayoutLog.join('\n')}
+            </pre>
           </section>
           </aside>
 
@@ -997,7 +1015,7 @@ function App() {
                   transform: `scale(${editorZoom})`,
                 }}
               >
-                      {documentState.elementos.map((element, index) => renderElementNode(element, index, previewData, true))}
+                      {alfaScanLayout.items.map((item, index) => renderElementNode(item, index, true))}
               </div>
             </div>
 
@@ -1146,9 +1164,7 @@ function App() {
                       transform: `scale(${previewZoom})`,
                     }}
                   >
-                    {documentState.elementos.map((element, index) =>
-                      renderElementNode(element, index, previewData, false, 1),
-                    )}
+                    {alfaScanLayout.items.map((item, index) => renderElementNode(item, index, false))}
                   </div>
                 </div>
                 <div className="zoom-controls">

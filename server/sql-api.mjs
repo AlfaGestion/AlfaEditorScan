@@ -81,6 +81,11 @@ function normalizeFormatCode(value) {
   return 'gondola'
 }
 
+function normalizeReportCode(value) {
+  const normalized = String(value ?? '').trim()
+  return normalized || 'gondola'
+}
+
 function isElementType(value) {
   return (
     value === 'empresa' ||
@@ -97,33 +102,35 @@ function isElementType(value) {
 }
 
 function mapTypeToSql(tipo) {
-  if (tipo === 'codigoBarra') return 'barcode'
+  if (tipo === 'codigoBarra') return 'codigo_barra'
+  if (tipo === 'precio') return 'precio'
+  if (tipo === 'linea') return 'linea'
   if (tipo === 'logo') return 'logo'
-  return 'text'
+  return 'texto'
 }
 
 function mapFieldToSql(tipo) {
   switch (tipo) {
     case 'empresa':
-      return 'companyName'
+      return 'Empresa'
     case 'descripcion':
-      return 'description'
+      return 'Descripcion'
     case 'precio':
-      return 'price'
+      return 'Precio'
     case 'codigoArticulo':
-      return 'internalCode'
+      return 'CodigoArticulo'
     case 'codigoBarra':
-      return 'barcode'
+      return 'CodigoBarra'
     case 'stock':
-      return 'stock'
+      return 'Stock'
     case 'fecha':
-      return 'date'
+      return 'Fecha'
     case 'textoFijo':
-      return 'textoFijo'
+      return 'TextoFijo'
     case 'linea':
-      return 'linea'
+      return 'TextoFijo'
     case 'logo':
-      return 'logo'
+      return 'Logo'
     default:
       return null
   }
@@ -131,8 +138,8 @@ function mapFieldToSql(tipo) {
 
 function getFixedText(element) {
   if (element.tipo === 'textoFijo') return element.text || 'Texto fijo'
-  if (element.tipo === 'linea') return element.text || '────────'
-  if (element.tipo === 'logo') return element.text || 'ALFA'
+  if (element.tipo === 'linea') return element.text || ''
+  if (element.tipo === 'logo') return element.text || 'Logo'
   return null
 }
 
@@ -159,7 +166,7 @@ function normalizeDocument(document) {
   }
 
   return {
-    codigo: normalizeFormatCode(document.codigo),
+    codigo: normalizeReportCode(document.codigo),
     nombre: typeof document.nombre === 'string' ? document.nombre : 'Gondola',
     anchoPapelMm: toNumber(document.anchoPapelMm, 80),
     altoPapelMm: toNumber(document.altoPapelMm, 60),
@@ -208,8 +215,8 @@ function getDetalleAlineacion(element) {
 
 function rowToVerificationDetail(row, index) {
   return {
-    tipoElemento: String(row.TipoElemento ?? '').trim().toLowerCase(),
-    campo: row.Campo == null ? null : String(row.Campo),
+    tipoElemento: String(row.TipoElemento ?? '').trim(),
+    campo: row.Campo == null || String(row.Campo).trim() === '' ? null : String(row.Campo).trim(),
     textoFijo: row.TextoFijo == null || String(row.TextoFijo).length === 0 ? null : String(row.TextoFijo),
     x: toNumber(row.X, 0),
     y: toNumber(row.Y, 0),
@@ -230,7 +237,7 @@ async function loadReportSnapshotByCodigo(codigo) {
     throw new Error('Faltan variables de entorno SQL. Revisar .env.local.')
   }
 
-  const normalizedCodigo = normalizeFormatCode(codigo)
+  const normalizedCodigo = normalizeReportCode(codigo)
   const pool = await sql.connect({
     server: SQL_SERVER,
     database: SQL_DATABASE,
@@ -290,7 +297,7 @@ async function loadReportSnapshotByCodigo(codigo) {
       `)
 
     return {
-      codigo: normalizeFormatCode(report.Codigo),
+      codigo: normalizeReportCode(report.Codigo),
       nombre: typeof report.Nombre === 'string' ? report.Nombre : 'Gondola',
       anchoPapelMm: toNumber(report.AnchoPapelMm, 80),
       altoMm: toNumber(report.AltoMm, 60),

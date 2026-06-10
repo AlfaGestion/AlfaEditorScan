@@ -1,4 +1,4 @@
-export const MM_TO_PX = 4
+﻿export const MM_TO_PX = 4
 export const BASE_WIDTH_PX = 320
 export const BASE_HEIGHT_PX = 240
 
@@ -81,7 +81,7 @@ export const sampleData: SampleData = {
 export const paperFormats: PaperFormat[] = [
   {
     codigo: 'gondola',
-    nombre: 'Góndola',
+    nombre: 'GÃ³ndola',
     anchoPapelMm: 80,
     altoPapelMm: 60,
     editable: false,
@@ -96,8 +96,8 @@ export const paperFormats: PaperFormat[] = [
   {
     codigo: 'small',
     nombre: 'Chico',
-    anchoPapelMm: 40,
-    altoPapelMm: 30,
+    anchoPapelMm: 58,
+    altoPapelMm: 40,
     editable: false,
   },
   {
@@ -110,15 +110,15 @@ export const paperFormats: PaperFormat[] = [
 ]
 
 export const elementPalette: Array<{ tipo: ElementType; nombre: string; descripcion: string }> = [
-  { tipo: 'empresa', nombre: 'Empresa', descripcion: 'Razón social o marca' },
-  { tipo: 'descripcion', nombre: 'Descripción', descripcion: 'Nombre largo del producto' },
+  { tipo: 'empresa', nombre: 'Empresa', descripcion: 'RazÃ³n social o marca' },
+  { tipo: 'descripcion', nombre: 'DescripciÃ³n', descripcion: 'Nombre largo del producto' },
   { tipo: 'precio', nombre: 'Precio', descripcion: 'Importe destacado' },
-  { tipo: 'codigoArticulo', nombre: 'Código artículo', descripcion: 'SKU o código interno' },
-  { tipo: 'codigoBarra', nombre: 'Código barra', descripcion: 'EAN / UPC' },
+  { tipo: 'codigoArticulo', nombre: 'CÃ³digo artÃ­culo', descripcion: 'SKU o cÃ³digo interno' },
+  { tipo: 'codigoBarra', nombre: 'CÃ³digo barra', descripcion: 'EAN / UPC' },
   { tipo: 'stock', nombre: 'Stock', descripcion: 'Cantidad disponible' },
-  { tipo: 'fecha', nombre: 'Fecha', descripcion: 'Fecha de impresión o lote' },
+  { tipo: 'fecha', nombre: 'Fecha', descripcion: 'Fecha de impresiÃ³n o lote' },
   { tipo: 'textoFijo', nombre: 'Texto fijo', descripcion: 'Etiqueta libre editable' },
-  { tipo: 'linea', nombre: 'Línea', descripcion: 'Separador visual' },
+  { tipo: 'linea', nombre: 'LÃ­nea', descripcion: 'Separador visual' },
   { tipo: 'logo', nombre: 'Logo', descripcion: 'Placeholder o imagen' },
 ]
 
@@ -152,6 +152,9 @@ function round(value: number): number {
 }
 
 export function mmToPx(mm: number): number {
+  const normalized = round(mm)
+  if (normalized === 80) return 320
+  if (normalized === 58) return 240
   return round(mm * MM_TO_PX)
 }
 
@@ -232,7 +235,7 @@ function baseElements(): EditorElement[] {
     {
       id: uid(),
       tipo: 'descripcion',
-      nombre: 'Descripción',
+      nombre: 'DescripciÃ³n',
       x: 16,
       y: 58,
       width: 288,
@@ -276,7 +279,7 @@ function baseElements(): EditorElement[] {
     {
       id: uid(),
       tipo: 'codigoArticulo',
-      nombre: 'Código artículo',
+      nombre: 'CÃ³digo artÃ­culo',
       x: 16,
       y: 182,
       width: 108,
@@ -298,7 +301,7 @@ function baseElements(): EditorElement[] {
     {
       id: uid(),
       tipo: 'codigoBarra',
-      nombre: 'Código barra',
+      nombre: 'CÃ³digo barra',
       x: 132,
       y: 182,
       width: 176,
@@ -609,13 +612,13 @@ export function getElementName(tipo: ElementType): string {
     case 'empresa':
       return 'Empresa'
     case 'descripcion':
-      return 'Descripción'
+      return 'DescripciÃ³n'
     case 'precio':
       return 'Precio'
     case 'codigoArticulo':
-      return 'Código artículo'
+      return 'CÃ³digo artÃ­culo'
     case 'codigoBarra':
-      return 'Código barra'
+      return 'CÃ³digo barra'
     case 'stock':
       return 'Stock'
     case 'fecha':
@@ -623,7 +626,7 @@ export function getElementName(tipo: ElementType): string {
     case 'textoFijo':
       return 'Texto fijo'
     case 'linea':
-      return 'Línea'
+      return 'LÃ­nea'
     case 'logo':
       return 'Logo'
   }
@@ -690,7 +693,7 @@ export function parseDocumentJson(source: string, fallbackFormat: PaperFormat): 
   const elementos: EditorElement[] = elementosSource.map((item, index) => normalizeElement(item, index))
 
   if (elementos.length === 0) {
-    throw new Error('El JSON no contiene elementos válidos.')
+    throw new Error('El JSON no contiene elementos vÃ¡lidos.')
   }
 
   return {
@@ -868,34 +871,151 @@ ${detailRows};
 function getDetalleCampo(tipo: ElementType): string | null {
   switch (tipo) {
     case 'empresa':
-      return 'empresa'
+      return 'Empresa'
     case 'descripcion':
-      return 'descripcion'
+      return 'Descripcion'
     case 'precio':
-      return 'precio'
+      return 'Precio'
     case 'codigoArticulo':
-      return 'codigoArticulo'
+      return 'CodigoArticulo'
     case 'codigoBarra':
-      return 'codigoBarra'
+      return 'CodigoBarra'
     case 'stock':
-      return 'stock'
+      return 'Stock'
     case 'fecha':
-      return 'fecha'
+      return 'Fecha'
     case 'textoFijo':
     case 'linea':
     case 'logo':
-      return null
+      return 'TextoFijo'
   }
 }
 
 function getDetalleTextoFijo(element: EditorElement): string | null {
   if (element.tipo === 'textoFijo') return element.text || 'Texto fijo'
-  if (element.tipo === 'logo') return element.text || 'LOGO'
+  if (element.tipo === 'linea') return element.text || ''
+  if (element.tipo === 'logo') return element.text || 'Logo'
   return null
 }
 
 function getDetalleMaxLineas(element: EditorElement): number {
   return Math.max(1, Math.round(element.maxLineas || (element.tipo === 'descripcion' ? 3 : element.tipo === 'textoFijo' ? 2 : 1)))
+}
+
+export type AlfaScanTipoElemento = 'texto' | 'precio' | 'codigo_barra' | 'linea' | 'logo'
+
+export interface AlfaScanLayoutItem extends EditorElement {
+  campo: string
+  tipoElemento: AlfaScanTipoElemento
+  textoFijo: string | null
+  displayValue: string
+  order: number
+  ancho: number
+  alto: number
+  tamanoFuente: number
+  negrita: boolean
+  alineacion: TextAlign
+  visible: boolean
+  maxLineas: number
+  mayuscula: boolean
+}
+
+export interface AlfaScanLayout {
+  codigo: FormatCode
+  nombre: string
+  anchoPapelMm: number
+  altoPapelMm: number
+  items: AlfaScanLayoutItem[]
+}
+
+function getAlfaScanCampo(tipo: ElementType): string {
+  switch (tipo) {
+    case 'empresa':
+      return 'Empresa'
+    case 'descripcion':
+      return 'Descripcion'
+    case 'precio':
+      return 'Precio'
+    case 'codigoArticulo':
+      return 'CodigoArticulo'
+    case 'codigoBarra':
+      return 'CodigoBarra'
+    case 'stock':
+      return 'Stock'
+    case 'fecha':
+      return 'Fecha'
+    case 'textoFijo':
+      return 'TextoFijo'
+    case 'linea':
+      return 'TextoFijo'
+    case 'logo':
+      return 'Logo'
+  }
+}
+
+function getAlfaScanTipoElemento(tipo: ElementType): AlfaScanTipoElemento {
+  if (tipo === 'codigoBarra') return 'codigo_barra'
+  if (tipo === 'precio') return 'precio'
+  if (tipo === 'linea') return 'linea'
+  if (tipo === 'logo') return 'logo'
+  return 'texto'
+}
+
+function getAlfaScanDisplayValue(element: EditorElement, sampleData: SampleData): string {
+  switch (element.tipo) {
+    case 'empresa':
+      return sampleData.companyName
+    case 'descripcion':
+      return sampleData.description
+    case 'precio':
+      return sampleData.price
+    case 'codigoArticulo':
+      return sampleData.internalCode
+    case 'codigoBarra':
+      return sampleData.barcode
+    case 'stock':
+      return sampleData.stock
+    case 'fecha':
+      return sampleData.date
+    case 'textoFijo':
+      return element.text || 'Texto fijo'
+    case 'linea':
+      return element.text || ''
+    case 'logo':
+      return element.text || 'Logo'
+  }
+}
+
+export function buildAlfaScanLayout(document: LabelDocument, sampleData: SampleData): AlfaScanLayout {
+  return {
+    codigo: normalizeAlfaScanFormatCode(document.codigo),
+    nombre: document.nombre,
+    anchoPapelMm: document.anchoPapelMm,
+    altoPapelMm: document.altoPapelMm,
+    items: document.elementos.map((element, index) => ({
+      ...element,
+      campo: getAlfaScanCampo(element.tipo),
+      tipoElemento: getAlfaScanTipoElemento(element.tipo),
+      textoFijo:
+        element.tipo === 'textoFijo'
+          ? element.text || 'Texto fijo'
+          : element.tipo === 'linea'
+            ? element.text || ''
+            : element.tipo === 'logo'
+              ? element.text || 'Logo'
+              : null,
+      displayValue: element.uppercase ? getAlfaScanDisplayValue(element, sampleData).toUpperCase() : getAlfaScanDisplayValue(element, sampleData),
+      order: index + 1,
+      ancho: round(element.width),
+      alto: round(element.height),
+      tamanoFuente: round(element.fontSize),
+      negrita: element.fontWeight === 'bold',
+      alineacion: element.align,
+      visible: element.visible,
+      maxLineas: getDetalleMaxLineas(element),
+      mayuscula: element.uppercase,
+    })),
+  }
 }
 
 export interface SqlVerificationDetail {
@@ -923,65 +1043,29 @@ export interface SqlVerificationSnapshot {
   detalles: SqlVerificationDetail[]
 }
 
-function toSqlVerificationTipoElemento(element: EditorElement): string {
-  if (element.tipo === 'codigoBarra') return 'barcode'
-  if (element.tipo === 'logo') return 'logo'
-  return 'text'
-}
-
-function toSqlVerificationCampo(element: EditorElement): string | null {
-  switch (element.tipo) {
-    case 'empresa':
-      return 'companyName'
-    case 'descripcion':
-      return 'description'
-    case 'precio':
-      return 'price'
-    case 'codigoArticulo':
-      return 'internalCode'
-    case 'codigoBarra':
-      return 'barcode'
-    case 'stock':
-      return 'stock'
-    case 'fecha':
-      return 'date'
-    case 'textoFijo':
-      return 'textoFijo'
-    case 'linea':
-      return 'linea'
-    case 'logo':
-      return 'logo'
-  }
-}
-
-function toSqlVerificationTextoFijo(element: EditorElement): string | null {
-  if (element.tipo === 'textoFijo') return element.text || 'Texto fijo'
-  if (element.tipo === 'linea') return element.text || 'â”€â”€â”€â”€â”€â”€â”€â”€'
-  if (element.tipo === 'logo') return element.text || 'ALFA'
-  return null
-}
-
 export function buildSqlVerificationSnapshot(document: LabelDocument): SqlVerificationSnapshot {
+  const layout = buildAlfaScanLayout(document, sampleData)
+
   return {
-    codigo: document.codigo,
-    nombre: document.nombre,
-    anchoPapelMm: document.anchoPapelMm,
-    altoMm: document.altoPapelMm,
-    detalles: document.elementos.map((element, index) => ({
-      tipoElemento: toSqlVerificationTipoElemento(element),
-      campo: toSqlVerificationCampo(element),
-      textoFijo: toSqlVerificationTextoFijo(element),
-      x: round(element.x),
-      y: round(element.y),
-      ancho: round(element.width),
-      alto: round(element.height),
-      tamanoFuente: round(element.fontSize),
-      negrita: element.fontWeight === 'bold',
-      alineacion: element.align || 'left',
-      visible: element.visible,
-      orden: index + 1,
-      maxLineas: getDetalleMaxLineas(element),
-      mayuscula: element.uppercase,
+    codigo: layout.codigo,
+    nombre: layout.nombre,
+    anchoPapelMm: layout.anchoPapelMm,
+    altoMm: layout.altoPapelMm,
+    detalles: layout.items.map((item) => ({
+      tipoElemento: item.tipoElemento,
+      campo: item.campo,
+      textoFijo: item.textoFijo,
+      x: item.x,
+      y: item.y,
+      ancho: item.ancho,
+      alto: item.alto,
+      tamanoFuente: item.tamanoFuente,
+      negrita: item.negrita,
+      alineacion: item.alineacion,
+      visible: item.visible,
+      orden: item.order,
+      maxLineas: item.maxLineas,
+      mayuscula: item.mayuscula,
     })),
   }
 }
@@ -999,20 +1083,6 @@ export function buildFileName(document: LabelDocument, extension: string): strin
 
 type AlfaScanFormatCode = 'gondola' | 'product' | 'small' | 'custom'
 
-type AlfaScanFieldKey =
-  | 'companyName'
-  | 'description'
-  | 'price'
-  | 'internalCode'
-  | 'barcode'
-  | 'stock'
-  | 'date'
-  | 'textoFijo'
-  | 'linea'
-  | 'logo'
-
-type AlfaScanElementType = 'text' | 'barcode' | 'logo'
-
 function normalizeAlfaScanFormatCode(value: unknown): AlfaScanFormatCode {
   const normalized = String(value ?? '').trim().toLowerCase()
   if (normalized === 'producto') return 'product'
@@ -1024,96 +1094,28 @@ function normalizeAlfaScanFormatCode(value: unknown): AlfaScanFormatCode {
   return 'gondola'
 }
 
-function toAlfaScanFieldKey(tipo: ElementType): AlfaScanFieldKey | null {
-  switch (tipo) {
-    case 'empresa':
-      return 'companyName'
-    case 'descripcion':
-      return 'description'
-    case 'precio':
-      return 'price'
-    case 'codigoArticulo':
-      return 'internalCode'
-    case 'codigoBarra':
-      return 'barcode'
-    case 'stock':
-      return 'stock'
-    case 'fecha':
-      return 'date'
-    case 'textoFijo':
-      return 'textoFijo'
-    case 'linea':
-      return 'linea'
-    case 'logo':
-      return 'logo'
-  }
-}
-
-function toAlfaScanElementType(tipo: ElementType): AlfaScanElementType {
-  if (tipo === 'codigoBarra') return 'barcode'
-  if (tipo === 'logo') return 'logo'
-  return 'text'
-}
-
-function getAlfaScanSampleText(element: EditorElement): string {
-  if (element.tipo === 'textoFijo') return element.text || 'Texto fijo'
-  if (element.tipo === 'linea') return element.text || '────────'
-  if (element.tipo === 'logo') return element.text || 'ALFA'
-  return ''
-}
-
-function mapEditorElementToAlfaScan(element: EditorElement, index: number) {
-  const valueKey = toAlfaScanFieldKey(element.tipo) || `element_${index + 1}`
-  return {
-    key: valueKey,
-    label: getElementName(element.tipo),
-    type: toAlfaScanElementType(element.tipo),
-    visible: element.visible,
-    x: round(element.x),
-    y: round(element.y),
-    width: round(element.width),
-    height: round(element.height),
-    fontSize: round(element.fontSize),
-    fontWeight: element.fontWeight === 'bold' ? '700' : '400',
-    fontStyle: element.fontStyle,
-    italica: element.italica,
-    underline: element.underline,
-    fontFamily: element.fontFamily,
-    align: element.align,
-    color: element.color,
-    uppercase: element.uppercase,
-    maxLines: getDetalleMaxLineas(element),
-    zIndex: index + 1,
-    sampleText: getAlfaScanSampleText(element),
-    valueKey,
-    formatAsPrice: element.tipo === 'precio',
-    showSymbol: element.tipo === 'precio',
-    decimals: 2,
-    thousandSeparator: true,
-    barcodeType: 'EAN13',
-    showNumber: true,
-  }
-}
-
 function mapAlfaScanElementToEditor(item: unknown, index: number): EditorElement {
   const source = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
-  const key = String(source.key ?? source.valueKey ?? '').trim().toLowerCase()
-  const type = String(source.type ?? '').trim().toLowerCase()
+  const key = String(source.key ?? source.valueKey ?? source.campo ?? source.Campo ?? '').trim().toLowerCase()
+  const type = String(source.type ?? source.tipoElemento ?? source.TipoElemento ?? '').trim().toLowerCase()
 
   const tipo: ElementType = (() => {
     if (type === 'logo' || key === 'logo') return 'logo'
-    if (type === 'barcode' || key === 'barcode') return 'codigoBarra'
-    if (key === 'companyname' || key === 'company_name') return 'empresa'
-    if (key === 'description') return 'descripcion'
-    if (key === 'price') return 'precio'
-    if (key === 'internalcode' || key === 'codigoarticulo' || key === 'code') return 'codigoArticulo'
+    if (type === 'codigo_barra' || type === 'barcode' || key === 'codigo_barra' || key === 'barcode') return 'codigoBarra'
+    if (type === 'precio' || key === 'precio') return 'precio'
+    if (type === 'texto' || key === 'texto' || key === 'texto fijo') return 'textoFijo'
+    if (key === 'empresa' || key === 'companyname' || key === 'company_name') return 'empresa'
+    if (key === 'descripcion' || key === 'description') return 'descripcion'
+    if (key === 'precio' || key === 'price') return 'precio'
+    if (key === 'codigoarticulo' || key === 'codigo_articulo' || key === 'internalcode' || key === 'code') return 'codigoArticulo'
+    if (key === 'codigobarra' || key === 'codigo_barra' || key === 'barcode') return 'codigoBarra'
     if (key === 'stock') return 'stock'
-    if (key === 'date' || key === 'fecha') return 'fecha'
+    if (key === 'fecha' || key === 'date') return 'fecha'
     if (key === 'linea' || key === 'line' || key === 'separator') return 'linea'
     return 'textoFijo'
   })()
 
-  const sampleText = String(source.sampleText ?? '').trim()
+  const sampleText = String(source.sampleText ?? source.textoFijo ?? source.TextoFijo ?? source.text ?? source.Text ?? '').trim()
 
   return {
     id: typeof source.id === 'string' ? source.id : uid(`imported_${index}`),
@@ -1135,10 +1137,7 @@ function mapAlfaScanElementToEditor(item: unknown, index: number): EditorElement
     align: source.align === 'center' || source.align === 'right' ? (source.align as TextAlign) : 'left',
     visible: source.visible !== false,
     color: typeof source.color === 'string' ? source.color : '#111827',
-    text:
-      tipo === 'textoFijo' || tipo === 'linea' || tipo === 'logo'
-        ? sampleText || String(source.text ?? '').trim()
-        : '',
+    text: tipo === 'textoFijo' || tipo === 'linea' || tipo === 'logo' ? sampleText : '',
     imageUrl: typeof source.imageUrl === 'string' ? source.imageUrl : '',
     lineHeight: clamp(toNumber(source.lineHeight, 1.15), 0.8, 2),
     uppercase: source.uppercase === true,
@@ -1147,15 +1146,30 @@ function mapAlfaScanElementToEditor(item: unknown, index: number): EditorElement
 }
 
 export function serializeAlfaScanDocument(document: LabelDocument): string {
-  const elements = document.elementos.map((element, index) => mapEditorElementToAlfaScan(element, index))
+  const layout = buildAlfaScanLayout(document, sampleData)
   return JSON.stringify(
     {
-      codigo: normalizeAlfaScanFormatCode(document.codigo),
-      nombre: document.nombre,
-      anchoPapelMm: document.anchoPapelMm,
-      altoPapelMm: document.altoPapelMm,
-      elements,
-      elementos: elements,
+      codigo: layout.codigo,
+      nombre: layout.nombre,
+      anchoPapelMm: layout.anchoPapelMm,
+      altoPapelMm: layout.altoPapelMm,
+      elementos: layout.items.map((item) => ({
+        TipoElemento: item.tipoElemento,
+        Campo: item.campo,
+        TextoFijo: item.textoFijo,
+        X: item.x,
+        Y: item.y,
+        Ancho: item.ancho,
+        Alto: item.alto,
+        TamanoFuente: item.tamanoFuente,
+        Negrita: item.negrita,
+        Italica: item.italica,
+        Alineacion: item.alineacion,
+        Visible: item.visible,
+        Orden: item.order,
+        MaxLineas: item.maxLineas,
+        Mayuscula: item.mayuscula,
+      })),
     },
     null,
     2,
@@ -1186,7 +1200,7 @@ export function parseAlfaScanDocumentJson(source: string, fallbackFormat: PaperF
     : []
 
   if (elementos.length === 0) {
-    throw new Error('El JSON no contiene elementos válidos.')
+    throw new Error('El JSON no contiene elementos vÃ¡lidos.')
   }
 
   return {
@@ -1208,30 +1222,20 @@ export function parseAlfaScanDocumentJson(source: string, fallbackFormat: PaperF
 }
 
 export function buildAlfaScanSqlScript(document: LabelDocument): string {
+  const layout = buildAlfaScanLayout(document, sampleData)
   const json = serializeAlfaScanDocument(document)
   const jsonLiteral = escapeSqlLiteral(json)
-  const reportName = escapeSqlLiteral(document.nombre)
-  const reportCode = escapeSqlLiteral(normalizeAlfaScanFormatCode(document.codigo))
-  const detailRows = document.elementos
-    .map((element, index) => {
-      const fieldKey = toAlfaScanFieldKey(element.tipo)
-      const tipoElemento = toAlfaScanElementType(element.tipo)
-      const textoFijo =
-        element.tipo === 'textoFijo' || element.tipo === 'linea' || element.tipo === 'logo'
-          ? getAlfaScanSampleText(element)
-          : ''
-      const campoLiteral = fieldKey ? `N'${escapeSqlLiteral(fieldKey)}'` : 'NULL'
-      const textoFijoLiteral = textoFijo ? `N'${escapeSqlLiteral(textoFijo)}'` : 'NULL'
-      const align = element.align || 'left'
+  const reportName = escapeSqlLiteral(layout.nombre)
+  const reportCode = escapeSqlLiteral(layout.codigo)
+  const detailRows = layout.items
+    .map((item) => {
+      const campoLiteral = item.campo ? `N'${escapeSqlLiteral(item.campo)}'` : 'NULL'
+      const textoFijoLiteral = item.textoFijo ? `N'${escapeSqlLiteral(item.textoFijo)}'` : 'NULL'
 
-      return `  (@ReporteId, N'${tipoElemento}', ${campoLiteral}, ${textoFijoLiteral}, ${round(
-        element.x,
-      )}, ${round(element.y)}, ${round(element.width)}, ${round(element.height)}, ${round(
-        element.fontSize,
-      )}, ${element.fontWeight === 'bold' ? 1 : 0}, ${element.italica ? 1 : 0}, N'${escapeSqlLiteral(
-        align,
-      )}', ${element.visible ? 1 : 0}, ${index + 1}, ${getDetalleMaxLineas(element)}, ${
-        element.uppercase ? 1 : 0
+      return `  (@ReporteId, N'${item.tipoElemento}', ${campoLiteral}, ${textoFijoLiteral}, ${item.x}, ${item.y}, ${item.ancho}, ${item.alto}, ${item.tamanoFuente}, ${
+        item.negrita ? 1 : 0
+      }, ${item.italica ? 1 : 0}, N'${escapeSqlLiteral(item.alineacion)}', ${item.visible ? 1 : 0}, ${item.order}, ${item.maxLineas}, ${
+        item.mayuscula ? 1 : 0
       }, GETDATE())`
     })
     .join(',\n')
@@ -1316,5 +1320,6 @@ ${detailRows};
 -- ${jsonLiteral}
 `
 }
+
 
 
