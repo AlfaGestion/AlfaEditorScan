@@ -81,7 +81,7 @@ export const sampleData: SampleData = {
 export const paperFormats: PaperFormat[] = [
   {
     codigo: 'gondola',
-    nombre: 'GÃ³ndola',
+    nombre: 'Góndola',
     anchoPapelMm: 80,
     altoPapelMm: 60,
     editable: false,
@@ -110,15 +110,15 @@ export const paperFormats: PaperFormat[] = [
 ]
 
 export const elementPalette: Array<{ tipo: ElementType; nombre: string; descripcion: string }> = [
-  { tipo: 'empresa', nombre: 'Empresa', descripcion: 'RazÃ³n social o marca' },
-  { tipo: 'descripcion', nombre: 'DescripciÃ³n', descripcion: 'Nombre largo del producto' },
+  { tipo: 'empresa', nombre: 'Empresa', descripcion: 'Razón social o marca' },
+  { tipo: 'descripcion', nombre: 'Descripción', descripcion: 'Nombre largo del producto' },
   { tipo: 'precio', nombre: 'Precio', descripcion: 'Importe destacado' },
-  { tipo: 'codigoArticulo', nombre: 'CÃ³digo artÃ­culo', descripcion: 'SKU o cÃ³digo interno' },
-  { tipo: 'codigoBarra', nombre: 'CÃ³digo barra', descripcion: 'EAN / UPC' },
+  { tipo: 'codigoArticulo', nombre: 'Código artículo', descripcion: 'SKU o código interno' },
+  { tipo: 'codigoBarra', nombre: 'Código barra', descripcion: 'EAN / UPC' },
   { tipo: 'stock', nombre: 'Stock', descripcion: 'Cantidad disponible' },
-  { tipo: 'fecha', nombre: 'Fecha', descripcion: 'Fecha de impresiÃ³n o lote' },
+  { tipo: 'fecha', nombre: 'Fecha', descripcion: 'Fecha de impresión o lote' },
   { tipo: 'textoFijo', nombre: 'Texto fijo', descripcion: 'Etiqueta libre editable' },
-  { tipo: 'linea', nombre: 'LÃ­nea', descripcion: 'Separador visual' },
+  { tipo: 'linea', nombre: 'Línea', descripcion: 'Separador visual' },
   { tipo: 'logo', nombre: 'Logo', descripcion: 'Placeholder o imagen' },
 ]
 
@@ -235,7 +235,7 @@ function baseElements(): EditorElement[] {
     {
       id: uid(),
       tipo: 'descripcion',
-      nombre: 'DescripciÃ³n',
+      nombre: 'Descripción',
       x: 16,
       y: 58,
       width: 288,
@@ -279,7 +279,7 @@ function baseElements(): EditorElement[] {
     {
       id: uid(),
       tipo: 'codigoArticulo',
-      nombre: 'CÃ³digo artÃ­culo',
+      nombre: 'Código artículo',
       x: 16,
       y: 182,
       width: 108,
@@ -301,7 +301,7 @@ function baseElements(): EditorElement[] {
     {
       id: uid(),
       tipo: 'codigoBarra',
-      nombre: 'CÃ³digo barra',
+      nombre: 'Código barra',
       x: 132,
       y: 182,
       width: 176,
@@ -612,13 +612,13 @@ export function getElementName(tipo: ElementType): string {
     case 'empresa':
       return 'Empresa'
     case 'descripcion':
-      return 'DescripciÃ³n'
+      return 'Descripción'
     case 'precio':
       return 'Precio'
     case 'codigoArticulo':
-      return 'CÃ³digo artÃ­culo'
+      return 'Código artículo'
     case 'codigoBarra':
-      return 'CÃ³digo barra'
+      return 'Código barra'
     case 'stock':
       return 'Stock'
     case 'fecha':
@@ -626,7 +626,7 @@ export function getElementName(tipo: ElementType): string {
     case 'textoFijo':
       return 'Texto fijo'
     case 'linea':
-      return 'LÃ­nea'
+      return 'Línea'
     case 'logo':
       return 'Logo'
   }
@@ -693,7 +693,7 @@ export function parseDocumentJson(source: string, fallbackFormat: PaperFormat): 
   const elementos: EditorElement[] = elementosSource.map((item, index) => normalizeElement(item, index))
 
   if (elementos.length === 0) {
-    throw new Error('El JSON no contiene elementos vÃ¡lidos.')
+    throw new Error('El JSON no contiene elementos válidos.')
   }
 
   return {
@@ -1200,7 +1200,7 @@ export function parseAlfaScanDocumentJson(source: string, fallbackFormat: PaperF
     : []
 
   if (elementos.length === 0) {
-    throw new Error('El JSON no contiene elementos vÃ¡lidos.')
+    throw new Error('El JSON no contiene elementos válidos.')
   }
 
   return {

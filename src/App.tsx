@@ -231,6 +231,15 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
+function formatSaveDebugLine(label: string, detail: unknown) {
+  if (typeof detail === 'string') return `[SAVE_DEBUG] ${label}: ${detail}`
+  try {
+    return `[SAVE_DEBUG] ${label}: ${JSON.stringify(detail)}`
+  } catch {
+    return `[SAVE_DEBUG] ${label}: ${String(detail)}`
+  }
+}
+
 function App() {
   const stored = useMemo(() => readStoredState(), [])
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredTheme())
@@ -253,6 +262,7 @@ function App() {
   const [previewZoom, setPreviewZoom] = useState(1)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [saveMessage, setSaveMessage] = useState('')
+  const [saveDebugLog, setSaveDebugLog] = useState<string[]>([])
   const [showAdvancedInspector, setShowAdvancedInspector] = useState(false)
   const [showAddElementMenu, setShowAddElementMenu] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('editor')
@@ -345,6 +355,12 @@ function App() {
 
   function notify(kind: ToastKind, message: string) {
     setToast({ kind, message })
+  }
+
+  function pushSaveDebug(label: string, detail: unknown) {
+    const line = formatSaveDebugLine(label, detail)
+    console.error(line, detail)
+    setSaveDebugLog((current) => [line, ...current].slice(0, 6))
   }
 
   function updateDocument(next: LabelDocument) {
@@ -517,6 +533,7 @@ function App() {
   async function saveSql() {
     setSaveStatus('saving')
     setSaveMessage('Guardando...')
+    setSaveDebugLog([])
     try {
       const saveResponse = await fetch('/api/sql/save', {
         method: 'POST',
@@ -537,8 +554,16 @@ function App() {
         report?: SqlVerificationSnapshot | null
       }
 
+      pushSaveDebug('save_response', {
+        status: saveResponse.status,
+        ok: saveResponse.ok,
+        payload: savePayload,
+      })
+
       if (!saveResponse.ok || savePayload.ok === false) {
-        throw new Error(savePayload.error || 'No se pudo guardar en SQL Server.')
+        const error = savePayload.error || 'No se pudo guardar en SQL Server.'
+        pushSaveDebug('save_error', error)
+        throw new Error(error)
       }
 
       setSaveStatus('verifying')
@@ -548,6 +573,10 @@ function App() {
       if (savedReport) {
         const expected = buildSqlVerificationSnapshot(documentState)
         const verification = compareSqlVerificationSnapshots(expected, savedReport)
+        pushSaveDebug('verify_from_save', {
+          ok: verification.ok,
+          mismatches: verification.mismatches.slice(0, 10),
+        })
 
         if (!verification.ok) {
           const summary = verification.mismatches
@@ -557,6 +586,7 @@ function App() {
           const detail = summary || 'La plantilla guardada no coincide con SQL.'
           setSaveStatus('mismatch')
           setSaveMessage('Guardó pero no coincide con SQL')
+          pushSaveDebug('save_mismatch', { summary, mismatches: verification.mismatches })
           notify('error', detail)
           return
         }
@@ -576,20 +606,35 @@ function App() {
       try {
         const verifyResponse = await fetch(`/api/sql/report?codigo=${encodeURIComponent(documentState.codigo)}`)
         verifyPayload = (await verifyResponse.json().catch(() => ({}))) as typeof verifyPayload
+        pushSaveDebug('verify_response', {
+          status: verifyResponse.status,
+          ok: verifyResponse.ok,
+          payload: verifyPayload,
+        })
 
         if (!verifyResponse.ok || verifyPayload.ok === false || !verifyPayload.report) {
-          throw new Error(verifyPayload.error || 'No se pudo leer la plantilla guardada desde SQL.')
+          const error = verifyPayload.error || 'No se pudo leer la plantilla guardada desde SQL.'
+          pushSaveDebug('verify_error', error)
+          throw new Error(error)
         }
       } catch (verifyError) {
         setSaveStatus('error')
         setSaveMessage('Error al verificar SQL')
         const message = verifyError instanceof Error ? verifyError.message : 'No se pudo verificar SQL.'
+        pushSaveDebug('verify_exception', {
+          message,
+          error: verifyError,
+        })
         notify('error', message)
         return
       }
 
       const expected = buildSqlVerificationSnapshot(documentState)
       const verification = compareSqlVerificationSnapshots(expected, verifyPayload.report)
+      pushSaveDebug('verify_from_get', {
+        ok: verification.ok,
+        mismatches: verification.mismatches.slice(0, 10),
+      })
 
       if (!verification.ok) {
         const summary = verification.mismatches
@@ -599,6 +644,7 @@ function App() {
         const detail = summary || 'La plantilla guardada no coincide con SQL.'
         setSaveStatus('mismatch')
         setSaveMessage('Guardó pero no coincide con SQL')
+        pushSaveDebug('save_mismatch', { summary, mismatches: verification.mismatches })
         notify('error', detail)
         return
       }
@@ -610,6 +656,12 @@ function App() {
       setSaveStatus('error')
       const message = error instanceof Error ? error.message : 'No se pudo guardar en SQL Server.'
       setSaveMessage('Error al guardar')
+      pushSaveDebug('save_exception', {
+        message,
+        error,
+        documentCode: documentState.codigo,
+        documentName: documentState.nombre,
+      })
       notify('error', message)
     }
   }
@@ -768,6 +820,16 @@ function App() {
           </span>
         </div>
       </header>
+
+      {saveDebugLog.length > 0 ? (
+        <section className="save-debug-panel">
+          <div className="card-head">
+            <h2>Diagnóstico de guardado</h2>
+            <span className="pill">{saveDebugLog.length}</span>
+          </div>
+          <pre className="save-debug-log">{saveDebugLog.join('\n')}</pre>
+        </section>
+      ) : null}
 
       {viewMode === 'editor' ? (
         <main className="workspace">

@@ -1,16 +1,16 @@
-# AlfaEditorScan
+﻿# AlfaEditorScan
 
-Editor web local para disenar etiquetas compatibles con AlfaScan y guardar layouts en SQL Server.
+Editor web local para diseñar etiquetas compatibles con AlfaScan y guardar layouts en SQL Server.
 
 ## Objetivo
 
 `AlfaEditorScan` es un proyecto independiente de `AlfaScan`.
 
-- `AlfaScan`: Android, React Native, Expo, Sunmi, escaneo e impresion.
-- `AlfaEditorScan`: Web, React, Vite, PC/Desktop, diseno de etiquetas y exportacion.
+- `AlfaScan`: Android, React Native, Expo, Sunmi, escaneo e impresión.
+- `AlfaEditorScan`: Web, React, Vite, PC/Desktop, diseño de etiquetas y exportacion.
 
-`EditorScan` es la referencia oficial del layout y de la previsualizacion.
-Lo que se ve en el editor debe coincidir con lo que AlfaScan mostrara en Preview.
+`EditorScan` es la referencia oficial del layout y de la previsualización.
+Lo que se ve en el editor debe coincidir con lo que AlfaScan mostrará en Preview.
 
 Este editor no imprime, no escanea y no usa Sunmi.
 
@@ -21,7 +21,7 @@ Para guardar directamente en SQL Server usa el API local incluido en este repo.
 - Node.js 18 o superior.
 - npm.
 
-## Instalacion
+## Instalación
 
 ```bash
 git clone https://github.com/AlfaGestion/AlfaEditorScan.git
@@ -36,7 +36,7 @@ Abrir:
 http://localhost:5173
 ```
 
-## Que permite hacer
+## Qué permite hacer
 
 - Crear layouts para:
   - `Gondola`
@@ -45,54 +45,54 @@ http://localhost:5173
   - `Personalizado`
 - Arrastrar y redimensionar elementos estilo Canva.
 - Editar texto con una barra flotante contextual.
-- Ver una previsualizacion que usa el mismo modelo visual que AlfaScan.
-- Guardar el diseno en SQL Server mediante el API local.
+- Ver una previsualización que usa el mismo modelo visual que AlfaScan.
+- Guardar el diseño en SQL Server mediante el API local.
 
 ## Elementos soportados
 
 - Empresa
-- Descripcion
+- Descripción
 - Precio
-- Codigo articulo
-- Codigo barra
+- Código artículo
+- Código barra
 - Stock
 - Fecha
 - Texto fijo
-- Linea
+- Línea
 - Logo
 
 ## Flujo de trabajo
 
 ### 1. Crear formato
 
-Elegi una plantilla en el selector de formato.
+Elegí una plantilla en el selector de formato.
 
 - `80 mm` equivale a `320 px`.
 - `58 mm` equivale a `240 px`.
 - `1 mm = 4 px`.
 
-Si necesitas un tamano distinto, usa `Personalizado`.
+Si necesitas un tamaño distinto, usa `Personalizado`.
 
 ### 2. Editar
 
-Arrastra los elementos sobre el papel y usa la barra flotante contextual para cambiar el texto, el tamano, la alineacion y el estilo.
+Arrastra los elementos sobre el papel y usa la barra flotante contextual para cambiar el texto, el tamaño, la alineación y el estilo.
 
 ### 3. Guardar
 
-Usa el boton `Guardar`.
+Usa el botón `Guardar`.
 
-El editor envia el diseno al flujo local del proyecto para escribir en:
+El editor envía el diseño al flujo local del proyecto para escribir en:
 
 - `dbo.Scan_Reporte`
 - `dbo.Scan_ReporteDetalle`
 
-Si la conexion SQL no esta disponible, el editor muestra un mensaje claro y deja el flujo preparado.
+Si la conexión SQL no está disponible, el editor muestra un mensaje claro y deja el flujo preparado.
 
 ## Persistencia local
 
 El editor mantiene el estado visual mientras trabajas. La fuente de verdad del layout es `EditorScan`; el guardado solo persiste un modelo compatible con `dbo.Scan_Reporte` y `dbo.Scan_ReporteDetalle`.
 
-## Configuracion SQL Server
+## Configuración SQL Server
 
 Crea o edita `.env.local` con estos datos:
 
@@ -118,7 +118,7 @@ Eso levanta:
 - Vite en `http://localhost:5173`
 - API local en `http://127.0.0.1:3001`
 
-El boton `Guardar` usa ese API local para conectar a SQL Server.
+El botón `Guardar` usa ese API local para conectar a SQL Server.
 
 ## Roadmap
 
@@ -135,3 +135,12 @@ npm run dev
 npm run build
 npm run lint
 ```
+
+## Convenciones de texto
+
+- Todo texto del proyecto debe guardarse en UTF-8.
+- Los mensajes visibles para el usuario deben escribirse con acentos y ortografía correctos.
+- Evitar texto mal codificado, caracteres rotos o palabras truncadas.
+- Si un cambio afecta UI, revisar que los labels, tooltips y estados sigan siendo legibles en español.
+
+

@@ -157,7 +157,7 @@ async function hasColumn(pool, tableName, columnName) {
 
 function normalizeDocument(document) {
   if (!document || typeof document !== 'object') {
-    throw new Error('Documento invalido.')
+    throw new Error('Documento inválido.')
   }
 
   const elementos = Array.isArray(document.elementos) ? document.elementos : []
