@@ -1,9 +1,10 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { Rnd } from 'react-rnd'
 import './App.css'
 import heroLogo from './assets/hero.png'
 import {
   addElement,
+  buildSqlVerificationSnapshot,
   createDefaultDocument,
   duplicateElement,
   elementPalette,
@@ -14,7 +15,6 @@ import {
   getPaperFormat,
   paperFormats,
   removeElement,
-  scaleDocumentToFormat,
   STORAGE_KEY,
   toggleVisibility,
   updateElement,
@@ -22,16 +22,32 @@ import {
   type FormatCode,
   type LabelDocument,
   type SampleData,
+  type SqlVerificationSnapshot,
 } from './editor'
 
 type ToastKind = 'idle' | 'success' | 'error'
 
 type ThemeMode = 'light' | 'dark'
 type ViewMode = 'editor' | 'preview'
+type SaveStatus = 'idle' | 'saving' | 'verifying' | 'verified' | 'error' | 'mismatch'
 
-interface PersistedState {
+interface PersistedStateV2 {
+  version: 2
+  activeFormat: FormatCode
+  documentsByFormat: Partial<Record<FormatCode, LabelDocument>>
+  selectedIdsByFormat: Partial<Record<FormatCode, string>>
+}
+
+interface LegacyPersistedState {
   document: LabelDocument
   selectedId: string
+}
+
+interface StoredEditorState {
+  activeFormat: FormatCode
+  document: LabelDocument
+  documentsByFormat: Partial<Record<FormatCode, LabelDocument>>
+  selectedIdsByFormat: Partial<Record<FormatCode, string>>
 }
 
 interface PreviewProduct {
@@ -128,19 +144,85 @@ function normalizeStoredDocument(document: LabelDocument): LabelDocument {
   }
 }
 
-function readStoredState(): PersistedState | null {
+function normalizeStoredDocuments(
+  documentsByFormat: Partial<Record<FormatCode, LabelDocument>>,
+): Partial<Record<FormatCode, LabelDocument>> {
+  return Object.entries(documentsByFormat).reduce<Partial<Record<FormatCode, LabelDocument>>>((acc, [key, value]) => {
+    if (!value) return acc
+    const formatKey = normalizeFormatCode(key)
+    acc[formatKey] = normalizeStoredDocument(value)
+    return acc
+  }, {})
+}
+
+function createDocumentForFormat(codigo: FormatCode, existing?: LabelDocument): LabelDocument {
+  if (existing) return normalizeStoredDocument(existing)
+  return createDefaultDocument(codigo)
+}
+
+function readStoredState(): StoredEditorState {
   const raw = localStorage.getItem(STORAGE_KEY)
-  if (!raw) return null
+  if (!raw) {
+    const document = createDefaultDocument('gondola')
+    return {
+      activeFormat: 'gondola',
+      document,
+      documentsByFormat: {
+        gondola: document,
+      },
+      selectedIdsByFormat: {
+        gondola: document.elementos[0]?.id ?? '',
+      },
+    }
+  }
 
   try {
-    const parsed = JSON.parse(raw) as PersistedState
-    if (!parsed?.document?.elementos) return null
-    return {
-      ...parsed,
-      document: normalizeStoredDocument(parsed.document),
+    const parsed = JSON.parse(raw) as Partial<PersistedStateV2> & Partial<LegacyPersistedState>
+
+    if (parsed.version === 2) {
+      const normalizedDocuments = normalizeStoredDocuments(parsed.documentsByFormat || {})
+      const activeFormat = normalizeFormatCode(parsed.activeFormat || 'gondola')
+      const document =
+        normalizedDocuments[activeFormat] ?? createDocumentForFormat(activeFormat, parsed.documentsByFormat?.[activeFormat])
+      return {
+        activeFormat,
+        document,
+        documentsByFormat: {
+          ...normalizedDocuments,
+          [activeFormat]: document,
+        },
+        selectedIdsByFormat: parsed.selectedIdsByFormat || {},
+      }
+    }
+
+    if (parsed?.document?.elementos) {
+      const document = normalizeStoredDocument(parsed.document)
+      const activeFormat = normalizeFormatCode(document.codigo)
+      return {
+        activeFormat,
+        document,
+        documentsByFormat: {
+          [activeFormat]: document,
+        },
+        selectedIdsByFormat: {
+          [activeFormat]: parsed.selectedId || document.elementos[0]?.id || '',
+        },
+      }
     }
   } catch {
-    return null
+    // Fall through to default state.
+  }
+
+  const document = createDefaultDocument('gondola')
+  return {
+    activeFormat: 'gondola',
+    document,
+    documentsByFormat: {
+      gondola: document,
+    },
+    selectedIdsByFormat: {
+      gondola: document.elementos[0]?.id ?? '',
+    },
   }
 }
 
@@ -151,26 +233,31 @@ function clamp(value: number, min: number, max: number) {
 function App() {
   const stored = useMemo(() => readStoredState(), [])
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredTheme())
-
-  const [documentState, setDocumentState] = useState<LabelDocument>(
-    stored?.document ?? createDefaultDocument('gondola'),
+  const [documentsByFormat, setDocumentsByFormat] = useState<Partial<Record<FormatCode, LabelDocument>>>(
+    stored.documentsByFormat,
   )
+  const [selectedIdsByFormat, setSelectedIdsByFormat] = useState<Partial<Record<FormatCode, string>>>(
+    stored.selectedIdsByFormat,
+  )
+  const [activeFormat, setActiveFormat] = useState<FormatCode>(stored.activeFormat)
+  const [documentState, setDocumentState] = useState<LabelDocument>(stored.document)
   const [selectedId, setSelectedId] = useState<string>(
-    stored?.selectedId ?? stored?.document.elementos[0]?.id ?? documentState.elementos[0]?.id ?? '',
+    stored.selectedIdsByFormat[stored.activeFormat] ?? stored.document.elementos[0]?.id ?? '',
   )
   const [toast, setToast] = useState<{ kind: ToastKind; message: string }>({
     kind: 'idle',
     message: '',
   })
-  const [customWidthMm, setCustomWidthMm] = useState(documentState.anchoPapelMm)
-  const [customHeightMm, setCustomHeightMm] = useState(documentState.altoPapelMm)
   const [editorZoom, setEditorZoom] = useState(1)
   const [previewZoom, setPreviewZoom] = useState(1)
-  const [isSavingSql, setIsSavingSql] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [saveMessage, setSaveMessage] = useState('')
   const [showAdvancedInspector, setShowAdvancedInspector] = useState(false)
+  const [showAddElementMenu, setShowAddElementMenu] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('editor')
   const [previewQuery, setPreviewQuery] = useState('')
   const [selectedPreviewId, setSelectedPreviewId] = useState(previewCatalog[0]?.id ?? '')
+  const addElementMenuRef = useRef<HTMLDivElement | null>(null)
 
   const canvas = getCanvasSize(documentState)
   const effectiveSelectedId = documentState.elementos.some((element) => element.id === selectedId)
@@ -190,16 +277,22 @@ function App() {
   const selectedPreviewProduct =
     filteredPreviewProducts.find((product) => product.id === selectedPreviewId) ?? filteredPreviewProducts[0] ?? previewCatalog[0]
   const previewData = toPreviewSample(selectedPreviewProduct)
+  const customFormatActive = normalizeFormatCode(documentState.codigo) === 'custom'
+  const themeLabel = themeMode === 'dark' ? 'Modo oscuro' : 'Modo claro'
+  const currentZoom = viewMode === 'editor' ? editorZoom : previewZoom
+  const zoomLabel = `${Math.round(currentZoom * 100)}%`
 
   useEffect(() => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        document: documentState,
-        selectedId,
+        version: 2,
+        activeFormat,
+        documentsByFormat,
+        selectedIdsByFormat,
       }),
     )
-  }, [documentState, selectedId])
+  }, [activeFormat, documentsByFormat, selectedIdsByFormat])
 
   useEffect(() => {
     if (toast.kind === 'idle') return
@@ -218,12 +311,47 @@ function App() {
     document.documentElement.dataset.theme = themeMode
   }, [themeMode])
 
+  useEffect(() => {
+    if (saveStatus === 'idle' || saveStatus === 'saving' || saveStatus === 'verifying') return
+    const timeout = window.setTimeout(() => {
+      setSaveStatus('idle')
+      setSaveMessage('')
+    }, 2600)
+    return () => window.clearTimeout(timeout)
+  }, [saveStatus])
+
+  useEffect(() => {
+    if (!showAddElementMenu) return
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node | null
+      if (target && addElementMenuRef.current && !addElementMenuRef.current.contains(target)) {
+        setShowAddElementMenu(false)
+      }
+    }
+
+    window.addEventListener('mousedown', handlePointerDown)
+    return () => window.removeEventListener('mousedown', handlePointerDown)
+  }, [showAddElementMenu])
+
   function notify(kind: ToastKind, message: string) {
     setToast({ kind, message })
   }
 
   function updateDocument(next: LabelDocument) {
     setDocumentState(next)
+    setDocumentsByFormat((current) => ({
+      ...current,
+      [activeFormat]: next,
+    }))
+  }
+
+  function setCurrentSelectedId(nextId: string) {
+    setSelectedId(nextId)
+    setSelectedIdsByFormat((current) => ({
+      ...current,
+      [activeFormat]: nextId,
+    }))
   }
 
   function patchSelectedElement(patch: Partial<EditorElement>) {
@@ -232,23 +360,22 @@ function App() {
   }
 
   function handleFormatChange(codigo: FormatCode) {
-    if (normalizeFormatCode(codigo) === normalizeFormatCode(documentState.codigo)) return
+    const nextFormat = normalizeFormatCode(codigo)
+    if (nextFormat === activeFormat) return
 
-    const nextFormat = getPaperFormat(codigo)
-
-    if (codigo === 'custom') {
-      const nextDocument = {
-        ...documentState,
-        codigo: nextFormat.codigo,
-        nombre: nextFormat.nombre,
-        anchoPapelMm: customWidthMm,
-        altoPapelMm: customHeightMm,
-      }
-      updateDocument(nextDocument)
-      return
-    }
-
-    updateDocument(scaleDocumentToFormat(documentState, nextFormat))
+    const nextDocument = documentsByFormat[nextFormat] ?? createDefaultDocument(nextFormat)
+    setDocumentsByFormat((current) => ({
+      ...current,
+      [activeFormat]: documentState,
+      [nextFormat]: current[nextFormat] ?? nextDocument,
+    }))
+    setSelectedIdsByFormat((current) => ({
+      ...current,
+      [activeFormat]: selectedId,
+    }))
+    setActiveFormat(nextFormat)
+    setDocumentState(nextDocument)
+    setSelectedId(selectedIdsByFormat[nextFormat] ?? nextDocument.elementos[0]?.id ?? '')
   }
 
   function handleCustomFormatUpdate(nextWidth: number, nextHeight: number) {
@@ -256,8 +383,6 @@ function App() {
     const safeHeight = clamp(Math.round(nextHeight), 20, 240)
     const format = getPaperFormat('custom')
 
-    setCustomWidthMm(safeWidth)
-    setCustomHeightMm(safeHeight)
     updateDocument({
       ...documentState,
       codigo: format.codigo,
@@ -270,14 +395,15 @@ function App() {
   function handleAddElement(tipo: EditorElement['tipo']) {
     const next = addElement(documentState, tipo)
     updateDocument(next)
-    setSelectedId(next.elementos[next.elementos.length - 1]?.id ?? '')
+    setCurrentSelectedId(next.elementos[next.elementos.length - 1]?.id ?? '')
+    setShowAddElementMenu(false)
   }
 
   function handleDelete() {
     if (!selectedElement) return
     const next = removeElement(documentState, selectedElement.id)
     updateDocument(next)
-    setSelectedId(next.elementos[0]?.id ?? '')
+    setCurrentSelectedId(next.elementos[0]?.id ?? '')
   }
 
   function handleAlign(align: EditorElement['align']) {
@@ -294,7 +420,7 @@ function App() {
     const next = duplicateElement(documentState, selectedElement.id)
     const duplicatedId = next.elementos[next.elementos.findIndex((element) => element.id === selectedElement.id) + 1]?.id
     updateDocument(next)
-    setSelectedId(duplicatedId ?? selectedElement.id)
+    setCurrentSelectedId(duplicatedId ?? selectedElement.id)
   }
 
   function handleEditText(element: EditorElement) {
@@ -328,10 +454,62 @@ function App() {
     setViewMode('editor')
   }
 
+  function compareSqlVerificationSnapshots(expected: SqlVerificationSnapshot, actual: SqlVerificationSnapshot) {
+    const mismatches: Array<{ path: string; expected: unknown; actual: unknown }> = []
+
+    function pushMismatch(path: string, expectedValue: unknown, actualValue: unknown) {
+      mismatches.push({ path, expected: expectedValue, actual: actualValue })
+    }
+
+    if (expected.codigo !== actual.codigo) pushMismatch('codigo', expected.codigo, actual.codigo)
+    if (expected.nombre !== actual.nombre) pushMismatch('nombre', expected.nombre, actual.nombre)
+    if (expected.anchoPapelMm !== actual.anchoPapelMm) {
+      pushMismatch('anchoPapelMm', expected.anchoPapelMm, actual.anchoPapelMm)
+    }
+    if (expected.altoMm !== actual.altoMm) pushMismatch('altoMm', expected.altoMm, actual.altoMm)
+    if (expected.detalles.length !== actual.detalles.length) {
+      pushMismatch('detalles.length', expected.detalles.length, actual.detalles.length)
+    }
+
+    const count = Math.min(expected.detalles.length, actual.detalles.length)
+    for (let index = 0; index < count; index += 1) {
+      const expectedRow = expected.detalles[index]
+      const actualRow = actual.detalles[index]
+      const base = `detalles[${index}]`
+
+      ;[
+        ['tipoElemento', expectedRow.tipoElemento, actualRow.tipoElemento],
+        ['campo', expectedRow.campo, actualRow.campo],
+        ['textoFijo', expectedRow.textoFijo, actualRow.textoFijo],
+        ['x', expectedRow.x, actualRow.x],
+        ['y', expectedRow.y, actualRow.y],
+        ['ancho', expectedRow.ancho, actualRow.ancho],
+        ['alto', expectedRow.alto, actualRow.alto],
+        ['tamanoFuente', expectedRow.tamanoFuente, actualRow.tamanoFuente],
+        ['negrita', expectedRow.negrita, actualRow.negrita],
+        ['alineacion', expectedRow.alineacion, actualRow.alineacion],
+        ['visible', expectedRow.visible, actualRow.visible],
+        ['orden', expectedRow.orden, actualRow.orden],
+        ['maxLineas', expectedRow.maxLineas, actualRow.maxLineas],
+        ['mayuscula', expectedRow.mayuscula, actualRow.mayuscula],
+      ].forEach(([field, expectedValue, actualValue]) => {
+        if (expectedValue !== actualValue) {
+          pushMismatch(`${base}.${String(field)}`, expectedValue, actualValue)
+        }
+      })
+    }
+
+    return {
+      ok: mismatches.length === 0,
+      mismatches,
+    }
+  }
+
   async function saveSql() {
-    setIsSavingSql(true)
+    setSaveStatus('saving')
+    setSaveMessage('Guardando...')
     try {
-      const response = await fetch('/api/sql/save', {
+      const saveResponse = await fetch('/api/sql/save', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -341,7 +519,7 @@ function App() {
         }),
       })
 
-      const payload = (await response.json().catch(() => ({}))) as {
+      const savePayload = (await saveResponse.json().catch(() => ({}))) as {
         ok?: boolean
         error?: string
         reportId?: number
@@ -349,23 +527,60 @@ function App() {
         savedAt?: string
       }
 
-      if (!response.ok || payload.ok === false) {
-        throw new Error(payload.error || 'No se pudo guardar en SQL Server.')
+      if (!saveResponse.ok || savePayload.ok === false) {
+        throw new Error(savePayload.error || 'No se pudo guardar en SQL Server.')
       }
 
-      notify('success', 'Diseño guardado en SQL Server.')
+      setSaveStatus('verifying')
+      setSaveMessage('Verificando SQL...')
+
+      let verifyPayload: {
+        ok?: boolean
+        error?: string
+        report?: SqlVerificationSnapshot
+      } = {}
+
+      try {
+        const verifyResponse = await fetch(`/api/sql/report?codigo=${encodeURIComponent(normalizeFormatCode(documentState.codigo))}`)
+        verifyPayload = (await verifyResponse.json().catch(() => ({}))) as typeof verifyPayload
+
+        if (!verifyResponse.ok || verifyPayload.ok === false || !verifyPayload.report) {
+          throw new Error(verifyPayload.error || 'No se pudo leer la plantilla guardada desde SQL.')
+        }
+      } catch (verifyError) {
+        setSaveStatus('error')
+        setSaveMessage('Error al verificar SQL')
+        const message = verifyError instanceof Error ? verifyError.message : 'No se pudo verificar SQL.'
+        notify('error', message)
+        return
+      }
+
+      const expected = buildSqlVerificationSnapshot(documentState)
+      const verification = compareSqlVerificationSnapshots(expected, verifyPayload.report)
+
+      if (!verification.ok) {
+        const summary = verification.mismatches
+          .slice(0, 3)
+          .map((item) => `${item.path}: esperado ${JSON.stringify(item.expected)} / SQL ${JSON.stringify(item.actual)}`)
+          .join(' | ')
+        const detail = summary || 'La plantilla guardada no coincide con SQL.'
+        setSaveStatus('mismatch')
+        setSaveMessage('Guardó pero no coincide con SQL')
+        notify('error', detail)
+        return
+      }
+
+      setSaveStatus('verified')
+      setSaveMessage('Guardado y verificado en SQL')
+      notify('success', 'Guardado y verificado en SQL')
     } catch (error) {
+      setSaveStatus('error')
       const message = error instanceof Error ? error.message : 'No se pudo guardar en SQL Server.'
+      setSaveMessage('Error al guardar')
       notify('error', message)
-    } finally {
-      setIsSavingSql(false)
     }
   }
 
-  const customFormatActive = normalizeFormatCode(documentState.codigo) === 'custom'
-  const themeLabel = themeMode === 'dark' ? 'Modo oscuro' : 'Modo claro'
-  const currentZoom = viewMode === 'editor' ? editorZoom : previewZoom
-  const zoomLabel = `${Math.round(currentZoom * 100)}%`
 
   const toggleTheme = () => {
     setThemeMode((current) => (current === 'dark' ? 'light' : 'dark'))
@@ -417,7 +632,19 @@ function App() {
         ) : (
           <>
             <span className="element-label">{getElementName(element.tipo)}</span>
-            <span className="element-value">{getElementDisplayValue(element, data)}</span>
+                        <span
+              className="element-value"
+              style={{
+                display: "-webkit-box",
+                WebkitLineClamp: element.maxLineas,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+                whiteSpace: "normal",
+                wordBreak: "break-word",
+              }}
+            >
+              {getElementDisplayValue(element, data)}
+            </span>
           </>
         )}
       </div>
@@ -466,9 +693,9 @@ function App() {
           )
         }}
         className={`draggable-element ${isSelected ? 'selected' : ''} ${hiddenClass}`}
-        onMouseDown={() => setSelectedId(element.id)}
+        onMouseDown={() => setCurrentSelectedId(element.id)}
         onDoubleClick={() => {
-          setSelectedId(element.id)
+          setCurrentSelectedId(element.id)
           handleEditText(element)
         }}
       >
@@ -500,11 +727,11 @@ function App() {
           <button className="ghost" type="button" onClick={toggleTheme}>
             {themeLabel}
           </button>
-          <button className="primary" type="button" onClick={saveSql} disabled={isSavingSql}>
-            {isSavingSql ? 'Guardando...' : 'Guardar'}
+          <button className="primary" type="button" onClick={saveSql} disabled={saveStatus === 'saving' || saveStatus === 'verifying'}>
+            {saveStatus === 'saving' ? 'Guardando...' : saveStatus === 'verifying' ? 'Verificando SQL...' : 'Guardar'}
           </button>
-          <span className={`pill ${isSavingSql ? 'pill-warn' : toast.kind === 'error' ? 'pill-error' : ''}`}>
-            {isSavingSql ? 'Guardando...' : toast.message || 'Listo'}
+          <span className={`pill ${saveStatus === 'saving' || saveStatus === 'verifying' ? 'pill-warn' : saveStatus === 'error' || saveStatus === 'mismatch' ? 'pill-error' : ''}`}>
+            {saveMessage || toast.message || 'Listo'}
           </span>
         </div>
       </header>
@@ -542,8 +769,8 @@ function App() {
                   type="number"
                   min={30}
                   max={200}
-                  value={customWidthMm}
-                  onChange={(event) => handleCustomFormatUpdate(Number(event.target.value), customHeightMm)}
+                  value={documentState.anchoPapelMm}
+                  onChange={(event) => handleCustomFormatUpdate(Number(event.target.value), documentState.altoPapelMm)}
                   disabled={!customFormatActive}
                 />
               </div>
@@ -554,8 +781,8 @@ function App() {
                   type="number"
                   min={20}
                   max={240}
-                  value={customHeightMm}
-                  onChange={(event) => handleCustomFormatUpdate(customWidthMm, Number(event.target.value))}
+                  value={documentState.altoPapelMm}
+                  onChange={(event) => handleCustomFormatUpdate(documentState.anchoPapelMm, Number(event.target.value))}
                   disabled={!customFormatActive}
                 />
               </div>
@@ -629,6 +856,19 @@ function App() {
                   aria-label="Color del elemento"
                 />
               </label>
+              <label className="toolbar-control toolbar-select">
+                <span>Líneas máximas</span>
+                <select
+                  value={selectedElement.maxLineas}
+                  onChange={(event) => patchSelectedElement({ maxLineas: Number(event.target.value) })}
+                >
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <div className="toolbar-segment" role="group" aria-label="Formato de texto">
                 <button
                   type="button"
@@ -666,7 +906,7 @@ function App() {
                   title="Alinear a la izquierda"
                   aria-label="Alinear a la izquierda"
                 >
-                  ⟸
+                  ?
                 </button>
                 <button
                   type="button"
@@ -675,7 +915,7 @@ function App() {
                   title="Centrar"
                   aria-label="Centrar"
                 >
-                  ≡
+                  =
                 </button>
                 <button
                   type="button"
@@ -684,8 +924,35 @@ function App() {
                   title="Alinear a la derecha"
                   aria-label="Alinear a la derecha"
                 >
-                  ⟹
+                  ?
                 </button>
+              </div>
+              <div className="add-element-popover" ref={addElementMenuRef}>
+                <button
+                  type="button"
+                  className="tool-button add-element-button"
+                  onClick={() => setShowAddElementMenu((current) => !current)}
+                  aria-expanded={showAddElementMenu}
+                  aria-haspopup="menu"
+                >
+                  <span className="tool-icon">+</span>
+                  <span>Agregar elemento</span>
+                </button>
+                {showAddElementMenu ? (
+                  <div className="add-element-menu" role="menu" aria-label="Agregar elemento">
+                    {elementPalette.map((item) => (
+                      <button
+                        key={item.tipo}
+                        type="button"
+                        className="add-element-option"
+                        onClick={() => handleAddElement(item.tipo)}
+                      >
+                        <strong>{item.nombre}</strong>
+                        <span>{item.descripcion}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -694,7 +961,7 @@ function App() {
                 title={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
                 aria-label={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
               >
-                {selectedElement.visible ? '👁' : '🚫'}
+                {selectedElement.visible ? '??' : '??'}
               </button>
               <button
                 type="button"
@@ -703,7 +970,7 @@ function App() {
                 title="Duplicar"
                 aria-label="Duplicar"
               >
-                ⧉
+                ?
               </button>
               <button
                 type="button"
@@ -712,7 +979,7 @@ function App() {
                 title="Eliminar"
                 aria-label="Eliminar"
               >
-                🗑
+                ??
               </button>
             </div>
           ) : null}
@@ -903,6 +1170,34 @@ function App() {
 }
 
 export default App
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

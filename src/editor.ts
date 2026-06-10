@@ -898,6 +898,94 @@ function getDetalleMaxLineas(element: EditorElement): number {
   return Math.max(1, Math.round(element.maxLineas || (element.tipo === 'descripcion' ? 3 : element.tipo === 'textoFijo' ? 2 : 1)))
 }
 
+export interface SqlVerificationDetail {
+  tipoElemento: string
+  campo: string | null
+  textoFijo: string | null
+  x: number
+  y: number
+  ancho: number
+  alto: number
+  tamanoFuente: number
+  negrita: boolean
+  alineacion: string
+  visible: boolean
+  orden: number
+  maxLineas: number
+  mayuscula: boolean
+}
+
+export interface SqlVerificationSnapshot {
+  codigo: string
+  nombre: string
+  anchoPapelMm: number
+  altoMm: number | null
+  detalles: SqlVerificationDetail[]
+}
+
+function toSqlVerificationTipoElemento(element: EditorElement): string {
+  if (element.tipo === 'codigoBarra') return 'barcode'
+  if (element.tipo === 'logo') return 'logo'
+  return 'text'
+}
+
+function toSqlVerificationCampo(element: EditorElement): string | null {
+  switch (element.tipo) {
+    case 'empresa':
+      return 'companyName'
+    case 'descripcion':
+      return 'description'
+    case 'precio':
+      return 'price'
+    case 'codigoArticulo':
+      return 'internalCode'
+    case 'codigoBarra':
+      return 'barcode'
+    case 'stock':
+      return 'stock'
+    case 'fecha':
+      return 'date'
+    case 'textoFijo':
+      return 'textoFijo'
+    case 'linea':
+      return 'linea'
+    case 'logo':
+      return 'logo'
+  }
+}
+
+function toSqlVerificationTextoFijo(element: EditorElement): string | null {
+  if (element.tipo === 'textoFijo') return element.text || 'Texto fijo'
+  if (element.tipo === 'linea') return element.text || 'â”€â”€â”€â”€â”€â”€â”€â”€'
+  if (element.tipo === 'logo') return element.text || 'ALFA'
+  return null
+}
+
+export function buildSqlVerificationSnapshot(document: LabelDocument): SqlVerificationSnapshot {
+  return {
+    codigo: document.codigo,
+    nombre: document.nombre,
+    anchoPapelMm: document.anchoPapelMm,
+    altoMm: document.altoPapelMm,
+    detalles: document.elementos.map((element, index) => ({
+      tipoElemento: toSqlVerificationTipoElemento(element),
+      campo: toSqlVerificationCampo(element),
+      textoFijo: toSqlVerificationTextoFijo(element),
+      x: round(element.x),
+      y: round(element.y),
+      ancho: round(element.width),
+      alto: round(element.height),
+      tamanoFuente: round(element.fontSize),
+      negrita: element.fontWeight === 'bold',
+      alineacion: element.align || 'left',
+      visible: element.visible,
+      orden: index + 1,
+      maxLineas: getDetalleMaxLineas(element),
+      mayuscula: element.uppercase,
+    })),
+  }
+}
+
 export function buildFileName(document: LabelDocument, extension: string): string {
   const safeName = document.nombre
     .normalize('NFD')
@@ -1228,3 +1316,5 @@ ${detailRows};
 -- ${jsonLiteral}
 `
 }
+
+

@@ -206,6 +206,101 @@ function getDetalleAlineacion(element) {
   return element.align || 'left'
 }
 
+function rowToVerificationDetail(row, index) {
+  return {
+    tipoElemento: String(row.TipoElemento ?? '').trim().toLowerCase(),
+    campo: row.Campo == null ? null : String(row.Campo),
+    textoFijo: row.TextoFijo == null || String(row.TextoFijo).length === 0 ? null : String(row.TextoFijo),
+    x: toNumber(row.X, 0),
+    y: toNumber(row.Y, 0),
+    ancho: toNumber(row.Ancho, 0),
+    alto: toNumber(row.Alto, 0),
+    tamanoFuente: toNumber(row.TamanoFuente, 0),
+    negrita: Boolean(row.Negrita),
+    alineacion: typeof row.Alineacion === 'string' && row.Alineacion.trim() ? row.Alineacion : 'left',
+    visible: Boolean(row.Visible),
+    orden: toNumber(row.Orden, index + 1),
+    maxLineas: toNumber(row.MaxLineas, 1),
+    mayuscula: Boolean(row.Mayuscula),
+  }
+}
+
+async function loadReportSnapshotByCodigo(codigo) {
+  if (!SQL_SERVER || !SQL_DATABASE || !SQL_USER || !SQL_PASSWORD) {
+    throw new Error('Faltan variables de entorno SQL. Revisar .env.local.')
+  }
+
+  const normalizedCodigo = normalizeFormatCode(codigo)
+  const pool = await sql.connect({
+    server: SQL_SERVER,
+    database: SQL_DATABASE,
+    user: SQL_USER,
+    password: SQL_PASSWORD,
+    port: SQL_PORT,
+    options: {
+      encrypt: SQL_ENCRYPT,
+      trustServerCertificate: SQL_TRUST_SERVER_CERTIFICATE,
+    },
+  })
+
+  try {
+    const includeItalic = await hasColumn(pool, 'dbo.Scan_ReporteDetalle', 'Italica').catch(() => false)
+    const reportResult = await pool
+      .request()
+      .input('Codigo', sql.NVarChar(50), normalizedCodigo)
+      .query(`
+        SELECT TOP 1
+          IdReporte,
+          Codigo,
+          Nombre,
+          AnchoPapelMm,
+          AltoMm
+        FROM dbo.Scan_Reporte
+        WHERE Codigo = @Codigo;
+      `)
+
+    const report = reportResult.recordset?.[0]
+    if (!report) {
+      return null
+    }
+
+    const detailResult = await pool
+      .request()
+      .input('IdReporte', sql.Int, report.IdReporte)
+      .query(`
+        SELECT
+          TipoElemento,
+          Campo,
+          TextoFijo,
+          X,
+          Y,
+          Ancho,
+          Alto,
+          TamanoFuente,
+          Negrita,
+          ${includeItalic ? 'Italica,' : ''}
+          Alineacion,
+          Visible,
+          Orden,
+          MaxLineas,
+          Mayuscula
+        FROM dbo.Scan_ReporteDetalle
+        WHERE IdReporte = @IdReporte
+        ORDER BY Orden ASC, IdDetalle ASC;
+      `)
+
+    return {
+      codigo: normalizeFormatCode(report.Codigo),
+      nombre: typeof report.Nombre === 'string' ? report.Nombre : 'Gondola',
+      anchoPapelMm: toNumber(report.AnchoPapelMm, 80),
+      altoMm: toNumber(report.AltoMm, 60),
+      detalles: detailResult.recordset.map((row, index) => rowToVerificationDetail(row, index)),
+    }
+  } finally {
+    await pool.close()
+  }
+}
+
 function buildDetailTable(document, reportId, includeItalic = false) {
   const table = new sql.Table('dbo.Scan_ReporteDetalle')
   table.create = false
@@ -392,6 +487,40 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/sql/report') {
+    try {
+      const codigo = url.searchParams.get('codigo') || ''
+      if (!codigo.trim()) {
+        json(res, 400, {
+          ok: false,
+          error: 'Falta el parametro codigo.',
+        })
+        return
+      }
+
+      const report = await loadReportSnapshotByCodigo(codigo)
+      if (!report) {
+        json(res, 404, {
+          ok: false,
+          error: 'No se encontro una plantilla con ese codigo.',
+        })
+        return
+      }
+
+      json(res, 200, {
+        ok: true,
+        report,
+      })
+    } catch (error) {
+      log('GET /api/sql/report failed', error instanceof Error ? error.message : error)
+      json(res, 500, {
+        ok: false,
+        error: error instanceof Error ? error.message : 'Error desconocido.',
+      })
+    }
+    return
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/sql/save') {
     try {
       const body = await readBody(req)
@@ -414,3 +543,4 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`SQL API listening on http://127.0.0.1:${PORT}`)
 })
+
