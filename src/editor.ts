@@ -893,7 +893,7 @@ function getDetalleCampo(tipo: ElementType): string | null {
 
 function getDetalleTextoFijo(element: EditorElement): string | null {
   if (element.tipo === 'textoFijo') return element.text || 'Texto fijo'
-  if (element.tipo === 'linea') return element.text || ''
+  if (element.tipo === 'linea') return null
   if (element.tipo === 'logo') return element.text || 'Logo'
   return null
 }
@@ -1000,12 +1000,14 @@ export function buildAlfaScanLayout(document: LabelDocument, sampleData: SampleD
         element.tipo === 'textoFijo'
           ? element.text || 'Texto fijo'
           : element.tipo === 'linea'
-            ? element.text || ''
+            ? null
             : element.tipo === 'logo'
               ? element.text || 'Logo'
               : null,
       displayValue: element.uppercase ? getAlfaScanDisplayValue(element, sampleData).toUpperCase() : getAlfaScanDisplayValue(element, sampleData),
       order: index + 1,
+      x: round(element.x),
+      y: round(element.y),
       ancho: round(element.width),
       alto: round(element.height),
       tamanoFuente: round(element.fontSize),
