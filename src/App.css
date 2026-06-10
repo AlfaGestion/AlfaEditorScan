@@ -18,9 +18,7 @@
   --input-bg: #ffffff;
   --input-text: #0f172a;
   --toolbar-bg: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-  --paper-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
-  --paper-grid-1: rgba(15, 23, 42, 0.03);
-  --paper-grid-2: rgba(15, 23, 42, 0.03);
+  --paper-bg: #ffffff;
   --code-bg: #0f172a;
   --code-text: #e2e8f0;
   --button-bg: #ffffff;
@@ -58,9 +56,7 @@
   --input-bg: #111b2c;
   --input-text: #e5eef8;
   --toolbar-bg: linear-gradient(180deg, #131c2d 0%, #0d1524 100%);
-  --paper-bg: linear-gradient(180deg, rgba(16, 24, 39, 0.96), rgba(10, 16, 30, 0.98));
-  --paper-grid-1: rgba(148, 163, 184, 0.08);
-  --paper-grid-2: rgba(148, 163, 184, 0.08);
+  --paper-bg: #ffffff;
   --code-bg: #050814;
   --code-text: #d8e3f0;
   --button-bg: #121d2d;
@@ -530,13 +526,17 @@ input[type='file'] {
   border-radius: 24px;
   border: 1px solid var(--border);
   background:
-    linear-gradient(135deg, var(--paper-grid-1) 0, var(--paper-grid-1) 1px, transparent 1px) 0 0 / 24px 24px,
-    linear-gradient(225deg, var(--paper-grid-2) 0, var(--paper-grid-2) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(135deg, rgba(15, 23, 42, 0.03) 0, rgba(15, 23, 42, 0.03) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(225deg, rgba(15, 23, 42, 0.03) 0, rgba(15, 23, 42, 0.03) 1px, transparent 1px) 0 0 / 24px 24px,
     linear-gradient(180deg, var(--surface-soft), var(--surface));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .app-shell[data-theme='dark'] .canvas-stage {
+  background:
+    linear-gradient(135deg, rgba(148, 163, 184, 0.08) 0, rgba(148, 163, 184, 0.08) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(225deg, rgba(148, 163, 184, 0.08) 0, rgba(148, 163, 184, 0.08) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(180deg, var(--surface-soft), var(--surface));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
