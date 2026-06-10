@@ -800,7 +800,7 @@ function App() {
   function renderElementNode(element: AlfaScanLayoutItem, index: number, interactive: boolean, scale = 1) {
     const hiddenClass = element.visible ? '' : 'is-hidden'
     const isSelected = interactive && element.id === selectedId
-    const isBarcodeFont = element.tipoFuente === 'Barcode / Código de barra'
+    const isBarcodeFont = element.tipoFuente === 'Barcode'
     const barcodeValueStyle = isBarcodeFont
       ? {
           fontFamily: '"Libre Barcode 128", monospace',
@@ -1036,7 +1036,7 @@ function App() {
                   value={selectedElement.tipoFuente || inferTipoFuente(selectedElement.fontFamily)}
                   onChange={(event) => {
                     const nextTipoFuente = event.target.value
-                    const isBarcodeFont = nextTipoFuente === 'Barcode / Código de barra'
+                    const isBarcodeFont = nextTipoFuente === 'Barcode'
                     patchSelectedElement({
                       tipoFuente: nextTipoFuente,
                       fontFamily: tipoFuenteToFontFamily(nextTipoFuente),

@@ -1,4 +1,4 @@
-import http from 'node:http'
+﻿import http from 'node:http'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -83,7 +83,7 @@ function resolveStaticPath(requestPath) {
 async function serveProductionApp(req, res, pathname) {
   const filePath = resolveStaticPath(pathname)
   if (!filePath) {
-    text(res, 400, 'Ruta inválida.')
+    text(res, 400, 'Ruta invÃ¡lida.')
     return
   }
 
@@ -176,7 +176,7 @@ function normalizeReportCode(value) {
 function normalizeTipoFuente(value) {
   const normalized = String(value ?? '').trim().toLowerCase()
   if (!normalized || normalized === 'default') return 'Default'
-  if (normalized.includes('barcode')) return 'Barcode / Código de barra'
+  if (normalized.includes('barcode')) return 'Barcode'
   if (normalized.includes('courier')) return 'Courier New'
   if (normalized.includes('consolas')) return 'Consolas'
   if (normalized.includes('times new roman') || normalized.includes('times')) return 'Times New Roman'
@@ -199,6 +199,7 @@ function isElementType(value) {
     value === 'precio' ||
     value === 'codigoArticulo' ||
     value === 'codigoBarra' ||
+    value === 'codigoBarraTexto' ||
     value === 'stock' ||
     value === 'fecha' ||
     value === 'textoFijo' ||
@@ -207,11 +208,18 @@ function isElementType(value) {
   )
 }
 
-function mapTypeToSql(tipo) {
+function isBarcodeGraphicElement(element) {
+  if (element?.tipo !== 'codigoBarra') return false
+  return normalizeTipoFuente(element?.tipoFuente ?? element?.fontFamily) === 'Barcode'
+}
+
+function mapTypeToSql(element) {
+  const tipo = element?.tipo
   if (tipo === 'empresa') return 'Dato'
   if (tipo === 'descripcion') return 'texto'
   if (tipo === 'precio') return 'precio'
-  if (tipo === 'codigoBarra') return 'codigobarra'
+  if (tipo === 'codigoBarra') return isBarcodeGraphicElement(element) ? 'codigobarra' : 'texto'
+  if (tipo === 'codigoBarraTexto') return 'texto'
   if (tipo === 'linea') return 'linea'
   if (tipo === 'textoFijo') return 'texto'
   return 'texto'
@@ -228,6 +236,7 @@ function mapFieldToSql(tipo) {
     case 'codigoArticulo':
       return 'CodigoArticulo'
     case 'codigoBarra':
+    case 'codigoBarraTexto':
       return 'CodigoBarra'
     case 'stock':
       return 'Stock'
@@ -265,7 +274,7 @@ async function hasColumn(pool, tableName, columnName) {
 
 function normalizeDocument(document) {
   if (!document || typeof document !== 'object') {
-    throw new Error('Documento inválido.')
+    throw new Error('Documento invÃ¡lido.')
   }
 
   const elementos = Array.isArray(document.elementos) ? document.elementos : []
@@ -530,7 +539,7 @@ async function insertDetailRows(transaction, document, reportId) {
   for (const [index, element] of document.elementos.entries()) {
     const request = new sql.Request(transaction)
     request.input('IdReporte', sql.Int, reportId)
-    request.input('TipoElemento', sql.NVarChar(30), mapTypeToSql(element.tipo))
+    request.input('TipoElemento', sql.NVarChar(30), mapTypeToSql(element))
     request.input('Campo', sql.NVarChar(50), mapFieldToSql(element.tipo))
     request.input('TextoFijo', sql.NVarChar(250), getFixedText(element))
     request.input('TipoFuente', sql.NVarChar(100), normalizeTipoFuente(element.tipoFuente ?? element.fontFamily))
@@ -801,5 +810,6 @@ server.on('error', (error) => {
 server.listen(PORT, () => {
   console.log(`SQL API listening on http://127.0.0.1:${PORT}`)
 })
+
 
 

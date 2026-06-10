@@ -1,4 +1,4 @@
-import http from 'node:http'
+﻿import http from 'node:http'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -83,7 +83,7 @@ function resolveStaticPath(requestPath) {
 async function serveProductionApp(req, res, pathname) {
   const filePath = resolveStaticPath(pathname)
   if (!filePath) {
-    text(res, 400, 'Ruta inválida.')
+    text(res, 400, 'Ruta invÃ¡lida.')
     return
   }
 
@@ -176,7 +176,7 @@ function normalizeReportCode(value) {
 function normalizeTipoFuente(value) {
   const normalized = String(value ?? '').trim().toLowerCase()
   if (!normalized || normalized === 'default') return 'Default'
-  if (normalized.includes('barcode')) return 'Barcode / Código de barra'
+  if (normalized.includes('barcode')) return 'Barcode'
   if (normalized.includes('courier')) return 'Courier New'
   if (normalized.includes('consolas')) return 'Consolas'
   if (normalized.includes('times new roman') || normalized.includes('times')) return 'Times New Roman'
@@ -210,7 +210,7 @@ function isElementType(value) {
 
 function isBarcodeGraphicElement(element) {
   if (element?.tipo !== 'codigoBarra') return false
-  return normalizeTipoFuente(element?.tipoFuente ?? element?.fontFamily) === 'Barcode / CÃ³digo de barra'
+  return normalizeTipoFuente(element?.tipoFuente ?? element?.fontFamily) === 'Barcode'
 }
 
 function mapTypeToSql(element) {
@@ -274,7 +274,7 @@ async function hasColumn(pool, tableName, columnName) {
 
 function normalizeDocument(document) {
   if (!document || typeof document !== 'object') {
-    throw new Error('Documento inválido.')
+    throw new Error('Documento invÃ¡lido.')
   }
 
   const elementos = Array.isArray(document.elementos) ? document.elementos : []
@@ -810,5 +810,6 @@ server.on('error', (error) => {
 server.listen(PORT, () => {
   console.log(`SQL API listening on http://127.0.0.1:${PORT}`)
 })
+
 
 

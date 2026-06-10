@@ -149,7 +149,7 @@ export const fontSourceOptions = [
   { value: 'Courier New', label: 'Courier New', fontFamily: '"Courier New", Courier, monospace' },
   { value: 'Consolas', label: 'Consolas', fontFamily: 'Consolas, Monaco, monospace' },
   { value: 'Monospace', label: 'Monospace', fontFamily: 'monospace' },
-  { value: 'Barcode / Código de barra', label: 'Barcode / Código de barra', fontFamily: '"Libre Barcode 128", monospace' },
+  { value: 'Barcode', label: 'Barcode', fontFamily: '"Libre Barcode 128", monospace' },
 ] as const
 
 export type TipoFuente = (typeof fontSourceOptions)[number]['value']
@@ -159,7 +159,7 @@ export function normalizeTipoFuente(value: unknown): TipoFuente {
   if (!normalized || normalized === 'default') return 'Default'
   const matched = fontSourceOptions.find((option) => option.value.toLowerCase() === normalized)
   if (matched) return matched.value
-  if (normalized.includes('barcode')) return 'Barcode / Código de barra'
+  if (normalized.includes('barcode')) return 'Barcode'
   if (normalized.includes('courier')) return 'Courier New'
   if (normalized.includes('consolas')) return 'Consolas'
   if (normalized.includes('times')) return 'Times New Roman'
@@ -178,7 +178,7 @@ export function normalizeTipoFuente(value: unknown): TipoFuente {
 export function inferTipoFuente(fontFamily: unknown): TipoFuente {
   const normalized = String(fontFamily ?? '').trim().toLowerCase()
   if (!normalized) return 'Default'
-  if (normalized.includes('barcode')) return 'Barcode / Código de barra'
+  if (normalized.includes('barcode')) return 'Barcode'
   if (normalized.includes('courier')) return 'Courier New'
   if (normalized.includes('consolas')) return 'Consolas'
   if (normalized.includes('times new roman') || normalized.includes('times')) return 'Times New Roman'
@@ -1026,7 +1026,7 @@ export interface AlfaScanLayout {
 
 function isBarcodeGraphicElement(element: Pick<EditorElement, 'tipo' | 'tipoFuente' | 'fontFamily'>): boolean {
   if (element.tipo !== 'codigoBarra') return false
-  return normalizeTipoFuente(element.tipoFuente ?? element.fontFamily) === 'Barcode / Código de barra'
+  return normalizeTipoFuente(element.tipoFuente ?? element.fontFamily) === 'Barcode'
 }
 
 function getSqlTipoElemento(element: EditorElement): SqlTipoElemento {
