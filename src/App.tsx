@@ -27,13 +27,66 @@ import {
 type ToastKind = 'idle' | 'success' | 'error'
 
 type ThemeMode = 'light' | 'dark'
+type ViewMode = 'editor' | 'preview'
 
 interface PersistedState {
   document: LabelDocument
   selectedId: string
 }
 
+interface PreviewProduct {
+  id: string
+  companyName: string
+  description: string
+  price: string
+  internalCode: string
+  barcode: string
+  stock: string
+}
+
 const THEME_STORAGE_KEY = 'alfa-editor-scan:theme'
+
+const previewCatalog: PreviewProduct[] = [
+  {
+    id: '10310',
+    companyName: 'Nano Distribuciones',
+    description: 'Nivea Deo Aerosol B&W Fresh Sin Siliconas X 150 Ml.',
+    price: '$ 1.805,00',
+    internalCode: '10310',
+    barcode: '4005900985712',
+    stock: '25',
+  },
+  {
+    id: '10311',
+    companyName: 'Nano Distribuciones',
+    description: 'Rexona Women Clinical Clean X 150 Ml.',
+    price: '$ 2.130,00',
+    internalCode: '10311',
+    barcode: '7791293012345',
+    stock: '14',
+  },
+  {
+    id: '21005',
+    companyName: 'Alfa Gestión',
+    description: 'Harina 0000 Pureza x 1 Kg.',
+    price: '$ 912,50',
+    internalCode: '21005',
+    barcode: '7790070112344',
+    stock: '54',
+  },
+]
+
+function toPreviewSample(product: PreviewProduct): typeof sampleData {
+  return {
+    companyName: product.companyName,
+    description: product.description,
+    price: product.price,
+    internalCode: product.internalCode,
+    barcode: product.barcode,
+    stock: product.stock,
+    date: new Intl.DateTimeFormat('es-AR').format(new Date()),
+  }
+}
 
 function normalizeFormatCode(value: string): FormatCode {
   switch (String(value ?? '').trim().toLowerCase()) {
@@ -111,15 +164,32 @@ function App() {
   })
   const [customWidthMm, setCustomWidthMm] = useState(documentState.anchoPapelMm)
   const [customHeightMm, setCustomHeightMm] = useState(documentState.altoPapelMm)
-  const [zoom, setZoom] = useState(1)
+  const [editorZoom, setEditorZoom] = useState(1)
+  const [previewZoom, setPreviewZoom] = useState(1)
   const [isSavingSql, setIsSavingSql] = useState(false)
   const [showAdvancedInspector, setShowAdvancedInspector] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>('editor')
+  const [previewQuery, setPreviewQuery] = useState('')
+  const [selectedPreviewId, setSelectedPreviewId] = useState(previewCatalog[0]?.id ?? '')
 
   const canvas = getCanvasSize(documentState)
   const effectiveSelectedId = documentState.elementos.some((element) => element.id === selectedId)
     ? selectedId
     : documentState.elementos[0]?.id ?? ''
   const selectedElement = getElementById(documentState, effectiveSelectedId)
+  const filteredPreviewProducts = useMemo(() => {
+    const query = previewQuery.trim().toLowerCase()
+    if (!query) return previewCatalog
+    return previewCatalog.filter((product) => {
+      return [product.id, product.companyName, product.description, product.internalCode, product.barcode]
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    })
+  }, [previewQuery])
+  const selectedPreviewProduct =
+    filteredPreviewProducts.find((product) => product.id === selectedPreviewId) ?? filteredPreviewProducts[0] ?? previewCatalog[0]
+  const previewData = toPreviewSample(selectedPreviewProduct)
 
   useEffect(() => {
     localStorage.setItem(
@@ -238,7 +308,24 @@ function App() {
   }
 
   function updateZoom(delta: number) {
-    setZoom((current) => clamp(Number((current + delta).toFixed(2)), 0.75, 1.35))
+    if (viewMode === 'editor') {
+      setEditorZoom((current) => clamp(Number((current + delta).toFixed(2)), 0.75, 1.35))
+      return
+    }
+
+    setPreviewZoom((current) => clamp(Number((current + delta).toFixed(2)), 0.75, 1.35))
+  }
+
+  function openPreview() {
+    if (filteredPreviewProducts.length > 0 && !filteredPreviewProducts.some((product) => product.id === selectedPreviewId)) {
+      setSelectedPreviewId(filteredPreviewProducts[0].id)
+    }
+    setPreviewZoom(1)
+    setViewMode('preview')
+  }
+
+  function closePreview() {
+    setViewMode('editor')
   }
 
   async function saveSql() {
@@ -277,7 +364,8 @@ function App() {
 
   const customFormatActive = normalizeFormatCode(documentState.codigo) === 'custom'
   const themeLabel = themeMode === 'dark' ? 'Modo oscuro' : 'Modo claro'
-  const zoomLabel = `${Math.round(zoom * 100)}%`
+  const currentZoom = viewMode === 'editor' ? editorZoom : previewZoom
+  const zoomLabel = `${Math.round(currentZoom * 100)}%`
 
   const toggleTheme = () => {
     setThemeMode((current) => (current === 'dark' ? 'light' : 'dark'))
@@ -296,11 +384,105 @@ function App() {
     })
   }
 
-  const toolbarWidth = 344
-  const toolbarLeft = selectedElement
-    ? clamp(selectedElement.x, 8, Math.max(8, canvas.widthPx - toolbarWidth - 8))
-    : 8
-  const toolbarTop = selectedElement ? Math.max(8, selectedElement.y - 54) : 8
+  const adjustSelectedFontSize = (delta: number) => {
+    if (!selectedElement) return
+    const nextSize = clamp(Math.round(selectedElement.fontSize + delta), 8, 80)
+    patchSelectedElement({ fontSize: nextSize })
+  }
+
+  function renderElementNode(
+    element: EditorElement,
+    index: number,
+    data: typeof sampleData,
+    interactive: boolean,
+    scale = 1,
+  ) {
+    const hiddenClass = element.visible ? '' : 'is-hidden'
+    const isSelected = interactive && element.id === selectedId
+
+    const content = (
+      <div
+        className={`element-content type-${element.tipo}`}
+        style={{
+          color: element.color,
+          fontSize: element.fontSize * scale,
+          fontWeight: element.fontWeight,
+          fontStyle: element.fontStyle,
+          textDecoration: element.underline ? 'underline' : 'none',
+          fontFamily: element.fontFamily,
+          textAlign: element.align,
+          lineHeight: element.lineHeight,
+        }}
+      >
+        {element.tipo === 'linea' ? (
+          <span className="line-shape" />
+        ) : element.tipo === 'logo' ? (
+          <div className="logo-box">
+            {element.imageUrl ? <img src={element.imageUrl} alt={element.nombre} /> : <span>{element.text || 'LOGO'}</span>}
+          </div>
+        ) : (
+          <>
+            <span className="element-label">{getElementName(element.tipo)}</span>
+            <span className="element-value">{getElementDisplayValue(element, data)}</span>
+          </>
+        )}
+      </div>
+    )
+
+    if (!interactive) {
+      return (
+        <div
+          key={element.id}
+          className={`draggable-element preview-element ${hiddenClass}`}
+          style={{
+            position: 'absolute',
+            left: element.x * scale,
+            top: element.y * scale,
+            width: element.width * scale,
+            height: element.height * scale,
+          }}
+        >
+          {content}
+          <span className="selection-tag">{index + 1}</span>
+        </div>
+      )
+    }
+
+    return (
+      <Rnd
+        key={element.id}
+        bounds="parent"
+        scale={editorZoom}
+        size={{ width: element.width, height: element.height }}
+        position={{ x: element.x, y: element.y }}
+        enableResizing={element.tipo !== 'linea'}
+        dragGrid={[4, 4]}
+        resizeGrid={[4, 4]}
+        onDragStop={(_, dataPosition) => {
+          updateDocument(updateElement(documentState, element.id, { x: dataPosition.x, y: dataPosition.y }))
+        }}
+        onResizeStop={(_, __, ref, ___, position) => {
+          updateDocument(
+            updateElement(documentState, element.id, {
+              width: Math.round(ref.offsetWidth),
+              height: Math.round(ref.offsetHeight),
+              x: position.x,
+              y: position.y,
+            }),
+          )
+        }}
+        className={`draggable-element ${isSelected ? 'selected' : ''} ${hiddenClass}`}
+        onMouseDown={() => setSelectedId(element.id)}
+        onDoubleClick={() => {
+          setSelectedId(element.id)
+          handleEditText(element)
+        }}
+      >
+        {content}
+        {isSelected ? <span className="selection-tag">{index + 1}</span> : null}
+      </Rnd>
+    )
+  }
 
   return (
     <div className="app-shell" data-theme={themeMode}>
@@ -315,6 +497,9 @@ function App() {
           </div>
         </div>
         <div className="topbar-actions">
+          <button className="ghost" type="button" onClick={() => (viewMode === 'editor' ? openPreview() : closePreview())}>
+            {viewMode === 'editor' ? 'Previsualizar' : 'Volver al editor'}
+          </button>
           <button className="ghost" type="button" onClick={() => setShowAdvancedInspector((current) => !current)}>
             {showAdvancedInspector ? 'Cerrar opciones' : 'Más opciones'}
           </button>
@@ -330,8 +515,9 @@ function App() {
         </div>
       </header>
 
-      <main className="workspace">
-        <aside className="panel left-panel">
+      {viewMode === 'editor' ? (
+        <main className="workspace">
+          <aside className="panel left-panel">
           <section className="card">
             <div className="card-head">
               <h2>Formato</h2>
@@ -404,206 +590,155 @@ function App() {
               ))}
             </div>
           </section>
-        </aside>
+          </aside>
 
-        <section className="canvas-column">
+          <section className="canvas-column">
+          {selectedElement ? (
+            <div className="floating-toolbar card">
+              <label className="toolbar-control toolbar-select">
+                <span>Tamaño</span>
+                <div className="size-stepper">
+                  <button
+                    type="button"
+                    className="tool-button icon-button"
+                    onClick={() => adjustSelectedFontSize(-1)}
+                    title="Disminuir letra"
+                    aria-label="Disminuir letra"
+                  >
+                    A-
+                  </button>
+                  <select
+                    value={selectedElement.fontSize}
+                    onChange={(event) => patchSelectedElement({ fontSize: Number(event.target.value) })}
+                  >
+                    {[8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="tool-button icon-button"
+                    onClick={() => adjustSelectedFontSize(1)}
+                    title="Aumentar letra"
+                    aria-label="Aumentar letra"
+                  >
+                    A+
+                  </button>
+                </div>
+              </label>
+              <label className="toolbar-color" title="Color">
+                <span>Color</span>
+                <input
+                  type="color"
+                  value={selectedElement.color}
+                  onChange={(event) => patchSelectedElement({ color: event.target.value })}
+                  aria-label="Color del elemento"
+                />
+              </label>
+              <div className="toolbar-segment" role="group" aria-label="Formato de texto">
+                <button
+                  type="button"
+                  className={`tool-button icon-button ${selectedElement.fontWeight === 'bold' ? 'is-active' : ''}`}
+                  onClick={() => setSelectedFontWeight(selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}
+                  title="Negrita"
+                  aria-label="Negrita"
+                >
+                  B
+                </button>
+                <button
+                  type="button"
+                  className={`tool-button icon-button ${selectedElement.italica ? 'is-active' : ''}`}
+                  onClick={() => setSelectedItalic(!selectedElement.italica)}
+                  title="Itálica"
+                  aria-label="Itálica"
+                >
+                  I
+                </button>
+                <button
+                  type="button"
+                  className={`tool-button icon-button ${selectedElement.uppercase ? 'is-active' : ''}`}
+                  onClick={() => patchSelectedElement({ uppercase: !selectedElement.uppercase })}
+                  title="Mayúsculas"
+                  aria-label="Mayúsculas"
+                >
+                  AA
+                </button>
+              </div>
+              <div className="toolbar-segment" role="group" aria-label="Alineación">
+                <button
+                  type="button"
+                  className={`tool-button icon-button ${selectedElement.align === 'left' ? 'is-active' : ''}`}
+                  onClick={() => handleAlign('left')}
+                  title="Alinear a la izquierda"
+                  aria-label="Alinear a la izquierda"
+                >
+                  ⟸
+                </button>
+                <button
+                  type="button"
+                  className={`tool-button icon-button ${selectedElement.align === 'center' ? 'is-active' : ''}`}
+                  onClick={() => handleAlign('center')}
+                  title="Centrar"
+                  aria-label="Centrar"
+                >
+                  ≡
+                </button>
+                <button
+                  type="button"
+                  className={`tool-button icon-button ${selectedElement.align === 'right' ? 'is-active' : ''}`}
+                  onClick={() => handleAlign('right')}
+                  title="Alinear a la derecha"
+                  aria-label="Alinear a la derecha"
+                >
+                  ⟹
+                </button>
+              </div>
+              <button
+                type="button"
+                className={`tool-button icon-button ${selectedElement.visible ? 'is-active' : ''}`}
+                onClick={handleToggleVisibility}
+                title={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
+                aria-label={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
+              >
+                {selectedElement.visible ? '👁' : '🚫'}
+              </button>
+              <button
+                type="button"
+                className="tool-button icon-button"
+                onClick={handleDuplicate}
+                title="Duplicar"
+                aria-label="Duplicar"
+              >
+                ⧉
+              </button>
+              <button
+                type="button"
+                className="tool-button danger-tool icon-button"
+                onClick={handleDelete}
+                title="Eliminar"
+                aria-label="Eliminar"
+              >
+                🗑
+              </button>
+            </div>
+          ) : null}
+
           <div className="canvas-stage">
-            <div className="paper-zoom-frame" style={{ width: canvas.widthPx * zoom, height: canvas.heightPx * zoom }}>
+            <div
+              className="paper-zoom-frame"
+              style={{ width: canvas.widthPx * editorZoom, height: canvas.heightPx * editorZoom }}
+            >
               <div
                 className="paper"
                 style={{
                   width: canvas.widthPx,
                   height: canvas.heightPx,
-                  transform: `scale(${zoom})`,
+                  transform: `scale(${editorZoom})`,
                 }}
               >
-                {selectedElement ? (
-                  <div
-                    className="floating-toolbar card"
-                    style={{
-                      left: toolbarLeft,
-                      top: toolbarTop,
-                      width: toolbarWidth,
-                    }}
-                  >
-                    <label className="toolbar-control toolbar-select">
-                      <span>Tamaño</span>
-                      <select
-                        value={selectedElement.fontSize}
-                        onChange={(event) => patchSelectedElement({ fontSize: Number(event.target.value) })}
-                      >
-                        {[8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64].map((size) => (
-                          <option key={size} value={size}>
-                            {size}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="toolbar-color" title="Color">
-                      <span>Color</span>
-                      <input
-                        type="color"
-                        value={selectedElement.color}
-                        onChange={(event) => patchSelectedElement({ color: event.target.value })}
-                        aria-label="Color del elemento"
-                      />
-                    </label>
-                    <div className="toolbar-segment" role="group" aria-label="Formato de texto">
-                      <button
-                        type="button"
-                        className={`tool-button icon-button ${selectedElement.fontWeight === 'bold' ? 'is-active' : ''}`}
-                        onClick={() => setSelectedFontWeight(selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}
-                        title="Negrita"
-                        aria-label="Negrita"
-                      >
-                        B
-                      </button>
-                      <button
-                        type="button"
-                        className={`tool-button icon-button ${selectedElement.italica ? 'is-active' : ''}`}
-                        onClick={() => setSelectedItalic(!selectedElement.italica)}
-                        title="Itálica"
-                        aria-label="Itálica"
-                      >
-                        I
-                      </button>
-                      <button
-                        type="button"
-                        className={`tool-button icon-button ${selectedElement.uppercase ? 'is-active' : ''}`}
-                        onClick={() => patchSelectedElement({ uppercase: !selectedElement.uppercase })}
-                        title="Mayúsculas"
-                        aria-label="Mayúsculas"
-                      >
-                        AA
-                      </button>
-                    </div>
-                    <div className="toolbar-segment" role="group" aria-label="Alineación">
-                      <button
-                        type="button"
-                        className={`tool-button icon-button ${selectedElement.align === 'left' ? 'is-active' : ''}`}
-                        onClick={() => handleAlign('left')}
-                        title="Alinear a la izquierda"
-                        aria-label="Alinear a la izquierda"
-                      >
-                        ⟸
-                      </button>
-                      <button
-                        type="button"
-                        className={`tool-button icon-button ${selectedElement.align === 'center' ? 'is-active' : ''}`}
-                        onClick={() => handleAlign('center')}
-                        title="Centrar"
-                        aria-label="Centrar"
-                      >
-                        ≡
-                      </button>
-                      <button
-                        type="button"
-                        className={`tool-button icon-button ${selectedElement.align === 'right' ? 'is-active' : ''}`}
-                        onClick={() => handleAlign('right')}
-                        title="Alinear a la derecha"
-                        aria-label="Alinear a la derecha"
-                      >
-                        ⟹
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      className={`tool-button icon-button ${selectedElement.visible ? 'is-active' : ''}`}
-                      onClick={handleToggleVisibility}
-                      title={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
-                      aria-label={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
-                    >
-                      {selectedElement.visible ? '👁' : '🚫'}
-                    </button>
-                    <button
-                      type="button"
-                      className="tool-button icon-button"
-                      onClick={handleDuplicate}
-                      title="Duplicar"
-                      aria-label="Duplicar"
-                    >
-                      ⧉
-                    </button>
-                    <button
-                      type="button"
-                      className="tool-button danger-tool icon-button"
-                      onClick={handleDelete}
-                      title="Eliminar"
-                      aria-label="Eliminar"
-                    >
-                      🗑
-                    </button>
-                  </div>
-                ) : null}
-
-                {documentState.elementos.map((element, index) => {
-                  const isSelected = element.id === selectedId
-                  const hiddenClass = element.visible ? '' : 'is-hidden'
-
-                  return (
-                    <Rnd
-                      key={element.id}
-                      bounds="parent"
-                      scale={zoom}
-                      size={{ width: element.width, height: element.height }}
-                      position={{ x: element.x, y: element.y }}
-                      enableResizing={element.tipo !== 'linea'}
-                      dragGrid={[4, 4]}
-                      resizeGrid={[4, 4]}
-                      onDragStop={(_, data) => {
-                        updateDocument(updateElement(documentState, element.id, { x: data.x, y: data.y }))
-                      }}
-                      onResizeStop={(_, __, ref, ___, position) => {
-                        updateDocument(
-                          updateElement(documentState, element.id, {
-                            width: Math.round(ref.offsetWidth),
-                            height: Math.round(ref.offsetHeight),
-                            x: position.x,
-                            y: position.y,
-                          }),
-                        )
-                      }}
-                      className={`draggable-element ${isSelected ? 'selected' : ''} ${hiddenClass}`}
-                      onMouseDown={() => setSelectedId(element.id)}
-                      onDoubleClick={() => {
-                        setSelectedId(element.id)
-                        handleEditText(element)
-                      }}
-                    >
-                      <div
-                        className={`element-content type-${element.tipo}`}
-                        style={{
-                          color: element.color,
-                          fontSize: element.fontSize,
-                          fontWeight: element.fontWeight,
-                          fontStyle: element.fontStyle,
-                          textDecoration: element.underline ? 'underline' : 'none',
-                          fontFamily: element.fontFamily,
-                          textAlign: element.align,
-                          lineHeight: element.lineHeight,
-                        }}
-                      >
-                        {element.tipo === 'linea' ? (
-                          <span className="line-shape" />
-                        ) : element.tipo === 'logo' ? (
-                          <div className="logo-box">
-                            {element.imageUrl ? (
-                              <img src={element.imageUrl} alt={element.nombre} />
-                            ) : (
-                              <span>{element.text || 'LOGO'}</span>
-                            )}
-                          </div>
-                        ) : (
-                          <>
-                            <span className="element-label">{getElementName(element.tipo)}</span>
-                            <span className="element-value">{getElementDisplayValue(element, sampleData)}</span>
-                          </>
-                        )}
-                      </div>
-                      {isSelected ? <span className="selection-tag">{index + 1}</span> : null}
-                    </Rnd>
-                  )
-                })}
+                      {documentState.elementos.map((element, index) => renderElementNode(element, index, sampleData, true))}
               </div>
             </div>
 
@@ -690,8 +825,87 @@ function App() {
               )}
             </aside>
           ) : null}
-        </section>
-      </main>
+          </section>
+        </main>
+      ) : (
+        <main className="preview-workspace">
+          <section className="preview-shell card">
+            <div className="preview-sidebar">
+              <div className="card-head">
+                <h2>Buscar producto</h2>
+                <span className="pill">{filteredPreviewProducts.length}</span>
+              </div>
+              <div className="field">
+                <label htmlFor="preview-search">Código, barra o descripción</label>
+                <input
+                  id="preview-search"
+                  type="search"
+                  placeholder="Buscar producto..."
+                  value={previewQuery}
+                  onChange={(event) => setPreviewQuery(event.target.value)}
+                />
+              </div>
+              <div className="preview-result-list">
+                {filteredPreviewProducts.map((product) => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    className={`preview-result ${product.id === selectedPreviewProduct.id ? 'is-active' : ''}`}
+                    onClick={() => setSelectedPreviewId(product.id)}
+                  >
+                    <strong>{product.description}</strong>
+                    <span>{product.companyName}</span>
+                    <small>
+                      {product.internalCode} · {product.barcode}
+                    </small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="preview-stage">
+              <div className="preview-header">
+                <div>
+                  <span className="pill preview-badge">Previsualización</span>
+                  <h2>{selectedPreviewProduct.companyName}</h2>
+                </div>
+                <div className="preview-meta">
+                  <span className="pill">{selectedPreviewProduct.internalCode}</span>
+                  <span className="pill">{selectedPreviewProduct.stock} en stock</span>
+                </div>
+              </div>
+              <div className="preview-board">
+                <div
+                  className="paper-zoom-frame"
+                  style={{ width: canvas.widthPx * previewZoom, height: canvas.heightPx * previewZoom }}
+                >
+                  <div
+                    className="paper preview-paper"
+                    style={{
+                      width: canvas.widthPx,
+                      height: canvas.heightPx,
+                      transform: `scale(${previewZoom})`,
+                    }}
+                  >
+                    {documentState.elementos.map((element, index) =>
+                      renderElementNode(element, index, previewData, false, 1),
+                    )}
+                  </div>
+                </div>
+                <div className="zoom-controls">
+                  <button type="button" className="ghost zoom-button" onClick={() => updateZoom(-0.1)}>
+                    - Zoom -
+                  </button>
+                  <span className="zoom-label">{zoomLabel}</span>
+                  <button type="button" className="ghost zoom-button" onClick={() => updateZoom(0.1)}>
+                    + Zoom +
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>
+      )}
     </div>
   )
 }
