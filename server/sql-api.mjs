@@ -208,11 +208,17 @@ function isElementType(value) {
   )
 }
 
-function mapTypeToSql(tipo) {
+function isBarcodeGraphicElement(element) {
+  if (element?.tipo !== 'codigoBarra') return false
+  return normalizeTipoFuente(element?.tipoFuente ?? element?.fontFamily) === 'Barcode / CÃ³digo de barra'
+}
+
+function mapTypeToSql(element) {
+  const tipo = element?.tipo
   if (tipo === 'empresa') return 'Dato'
   if (tipo === 'descripcion') return 'texto'
   if (tipo === 'precio') return 'precio'
-  if (tipo === 'codigoBarra') return 'codigobarra'
+  if (tipo === 'codigoBarra') return isBarcodeGraphicElement(element) ? 'codigobarra' : 'texto'
   if (tipo === 'codigoBarraTexto') return 'texto'
   if (tipo === 'linea') return 'linea'
   if (tipo === 'textoFijo') return 'texto'
@@ -230,7 +236,6 @@ function mapFieldToSql(tipo) {
     case 'codigoArticulo':
       return 'CodigoArticulo'
     case 'codigoBarra':
-      return 'CodigoBarra'
     case 'codigoBarraTexto':
       return 'CodigoBarra'
     case 'stock':
@@ -534,7 +539,7 @@ async function insertDetailRows(transaction, document, reportId) {
   for (const [index, element] of document.elementos.entries()) {
     const request = new sql.Request(transaction)
     request.input('IdReporte', sql.Int, reportId)
-    request.input('TipoElemento', sql.NVarChar(30), mapTypeToSql(element.tipo))
+    request.input('TipoElemento', sql.NVarChar(30), mapTypeToSql(element))
     request.input('Campo', sql.NVarChar(50), mapFieldToSql(element.tipo))
     request.input('TextoFijo', sql.NVarChar(250), getFixedText(element))
     request.input('TipoFuente', sql.NVarChar(100), normalizeTipoFuente(element.tipoFuente ?? element.fontFamily))

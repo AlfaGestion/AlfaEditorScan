@@ -1024,8 +1024,13 @@ export interface AlfaScanLayout {
   items: AlfaScanLayoutItem[]
 }
 
-function getSqlTipoElemento(tipo: ElementType): SqlTipoElemento {
-  switch (tipo) {
+function isBarcodeGraphicElement(element: Pick<EditorElement, 'tipo' | 'tipoFuente' | 'fontFamily'>): boolean {
+  if (element.tipo !== 'codigoBarra') return false
+  return normalizeTipoFuente(element.tipoFuente ?? element.fontFamily) === 'Barcode / Código de barra'
+}
+
+function getSqlTipoElemento(element: EditorElement): SqlTipoElemento {
+  switch (element.tipo) {
     case 'empresa':
       return 'Dato'
     case 'descripcion':
@@ -1033,7 +1038,9 @@ function getSqlTipoElemento(tipo: ElementType): SqlTipoElemento {
     case 'precio':
       return 'precio'
     case 'codigoBarra':
-      return 'codigobarra'
+      return isBarcodeGraphicElement(element) ? 'codigobarra' : 'texto'
+    case 'codigoBarraTexto':
+      return 'texto'
     case 'linea':
       return 'linea'
     case 'textoFijo':
@@ -1043,8 +1050,8 @@ function getSqlTipoElemento(tipo: ElementType): SqlTipoElemento {
   }
 }
 
-function getSqlCampo(tipo: ElementType): SqlDetalle['Campo'] {
-  switch (tipo) {
+function getSqlCampo(element: EditorElement): SqlDetalle['Campo'] {
+  switch (element.tipo) {
     case 'empresa':
       return 'Empresa'
     case 'descripcion':
@@ -1054,7 +1061,6 @@ function getSqlCampo(tipo: ElementType): SqlDetalle['Campo'] {
     case 'codigoArticulo':
       return 'CodigoArticulo'
     case 'codigoBarra':
-      return 'CodigoBarra'
     case 'codigoBarraTexto':
       return 'CodigoBarra'
     case 'stock':
@@ -1085,8 +1091,8 @@ function getSqlTipoFuente(element: EditorElement): string {
 
 export function editorElementToSqlDetalle(element: EditorElement, order: number): SqlDetalle {
   return {
-    TipoElemento: getSqlTipoElemento(element.tipo),
-    Campo: getSqlCampo(element.tipo),
+    TipoElemento: getSqlTipoElemento(element),
+    Campo: getSqlCampo(element),
     TextoFijo: getSqlTextoFijo(element),
     TipoFuente: getSqlTipoFuente(element),
     X: round(element.x),
@@ -1118,7 +1124,7 @@ export function sqlDetalleToEditorElement(detail: Partial<SqlDetalle> & { id?: s
     if (tipoElemento === 'precio') return 'precio'
     if (campo === 'codigoarticulo') return 'codigoArticulo'
     if (tipoElemento === 'codigobarra') return 'codigoBarra'
-    if (tipoElemento === 'texto' && campo === 'codigobarra') return 'codigoBarraTexto'
+    if (tipoElemento === 'texto' && campo === 'codigobarra') return 'codigoBarra'
     if (campo === 'stock') return 'stock'
     if (campo === 'fecha') return 'fecha'
     if (tipoElemento === 'linea') return 'linea'
@@ -1152,8 +1158,6 @@ export function sqlDetalleToEditorElement(detail: Partial<SqlDetalle> & { id?: s
         ? '------------'
         : tipo === 'textoFijo'
           ? String(detail.TextoFijo ?? '')
-          : tipo === 'codigoBarraTexto'
-            ? String(detail.TextoFijo ?? '')
           : '',
     imageUrl: '',
     lineHeight: 1.1,
