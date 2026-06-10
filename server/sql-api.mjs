@@ -28,7 +28,6 @@ function log(message, detail) {
     console.log(`[${timestamp}] ${message}`)
   }
 }
-
 function json(res, statusCode, payload) {
   res.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
@@ -109,10 +108,12 @@ function isElementType(value) {
 }
 
 function mapTypeToSql(tipo) {
-  if (tipo === 'codigoBarra') return 'codigo_barra'
+  if (tipo === 'empresa') return 'Dato'
+  if (tipo === 'descripcion') return 'texto'
   if (tipo === 'precio') return 'precio'
+  if (tipo === 'codigoBarra') return 'codigobarra'
   if (tipo === 'linea') return 'linea'
-  if (tipo === 'logo') return 'logo'
+  if (tipo === 'textoFijo') return 'texto'
   return 'texto'
 }
 
@@ -144,8 +145,8 @@ function mapFieldToSql(tipo) {
 }
 
 function getFixedText(element) {
-  if (element.tipo === 'textoFijo') return element.text || 'Texto fijo'
-  if (element.tipo === 'linea') return element.text || ''
+  if (element.tipo === 'textoFijo') return element.text && element.text.trim() ? element.text : null
+  if (element.tipo === 'linea') return '------------'
   if (element.tipo === 'logo') return element.text || 'Logo'
   return null
 }
@@ -204,20 +205,77 @@ function normalizeDocument(document) {
   }
 }
 
-function getDetailCampo(tipo) {
-  return mapFieldToSql(tipo)
-}
-
-function getDetalleTextoFijo(element) {
-  return getFixedText(element)
-}
-
-function getDetalleMaxLineas(element) {
-  return getSqlMaxLines(element)
-}
-
 function getDetalleAlineacion(element) {
   return element.align || 'left'
+}
+
+function buildVerificationSnapshotFromDocument(document) {
+  return {
+    codigo: normalizeReportCode(document.codigo),
+    nombre: typeof document.nombre === 'string' ? document.nombre : 'Gondola',
+    anchoPapelMm: toNumber(document.anchoPapelMm, 80),
+    altoMm: toNumber(document.altoPapelMm, 60),
+    detalles: document.elementos.map((element, index) => ({
+      tipoElemento: mapTypeToSql(element.tipo),
+      campo: mapFieldToSql(element.tipo),
+      textoFijo: getFixedText(element),
+      x: Math.round(element.x),
+      y: Math.round(element.y),
+      ancho: Math.round(element.width),
+      alto: Math.round(element.height),
+      tamanoFuente: Math.round(element.fontSize),
+      negrita: element.fontWeight === 'bold',
+      italica: element.italica === true || element.fontStyle === 'italic',
+      alineacion: getDetalleAlineacion(element),
+      visible: element.visible !== false,
+      orden: index + 1,
+      maxLineas: getSqlMaxLines(element),
+      mayuscula: element.uppercase === true,
+    })),
+  }
+}
+
+function compareVerificationSnapshots(expected, actual) {
+  const mismatches = []
+
+  const compareField = (path, expectedValue, actualValue) => {
+    if (expectedValue !== actualValue) {
+      mismatches.push({ path, expected: expectedValue, actual: actualValue })
+    }
+  }
+
+  compareField('codigo', expected.codigo, actual.codigo)
+  compareField('nombre', expected.nombre, actual.nombre)
+  compareField('anchoPapelMm', expected.anchoPapelMm, actual.anchoPapelMm)
+  compareField('altoMm', expected.altoMm, actual.altoMm)
+  compareField('detalles.length', expected.detalles.length, actual.detalles.length)
+
+  const count = Math.min(expected.detalles.length, actual.detalles.length)
+  for (let index = 0; index < count; index += 1) {
+    const base = `detalles[${index}]`
+    const expectedRow = expected.detalles[index]
+    const actualRow = actual.detalles[index]
+
+    compareField(`${base}.tipoElemento`, expectedRow.tipoElemento, actualRow.tipoElemento)
+    compareField(`${base}.campo`, expectedRow.campo, actualRow.campo)
+    compareField(`${base}.textoFijo`, expectedRow.textoFijo, actualRow.textoFijo)
+    compareField(`${base}.x`, expectedRow.x, actualRow.x)
+    compareField(`${base}.y`, expectedRow.y, actualRow.y)
+    compareField(`${base}.ancho`, expectedRow.ancho, actualRow.ancho)
+    compareField(`${base}.alto`, expectedRow.alto, actualRow.alto)
+    compareField(`${base}.tamanoFuente`, expectedRow.tamanoFuente, actualRow.tamanoFuente)
+    compareField(`${base}.negrita`, expectedRow.negrita, actualRow.negrita)
+    compareField(`${base}.alineacion`, expectedRow.alineacion, actualRow.alineacion)
+    compareField(`${base}.visible`, expectedRow.visible, actualRow.visible)
+    compareField(`${base}.orden`, expectedRow.orden, actualRow.orden)
+    compareField(`${base}.maxLineas`, expectedRow.maxLineas, actualRow.maxLineas)
+    compareField(`${base}.mayuscula`, expectedRow.mayuscula, actualRow.mayuscula)
+  }
+
+  return {
+    ok: mismatches.length === 0,
+    mismatches,
+  }
 }
 
 function rowToVerificationDetail(row, index) {
@@ -343,11 +401,16 @@ function buildDetailTable(document, reportId, includeItalic = false) {
   table.columns.add('FechaModificacion', sql.DateTime, { nullable: true })
 
   document.elementos.forEach((element, index) => {
+    const tipoElemento = mapTypeToSql(element.tipo)
+    const campo = mapFieldToSql(element.tipo)
+    const textoFijo = getFixedText(element)
+    const maxLineas = getSqlMaxLines(element)
+
     table.rows.add(
       reportId,
-      mapTypeToSql(element.tipo),
-      getDetailCampo(element.tipo),
-      getDetalleTextoFijo(element),
+      tipoElemento,
+      campo,
+      textoFijo,
       Math.round(element.x),
       Math.round(element.y),
       Math.round(element.width),
@@ -358,7 +421,7 @@ function buildDetailTable(document, reportId, includeItalic = false) {
       getDetalleAlineacion(element),
       element.visible ? 1 : 0,
       index + 1,
-      getDetalleMaxLineas(element),
+      maxLineas,
       element.uppercase ? 1 : 0,
       new Date(),
     )
@@ -471,6 +534,24 @@ async function saveDocumentToSqlServer(document) {
     })
 
     const report = await loadReportSnapshotByCodigo(normalized.codigo)
+    const verification = report ? compareVerificationSnapshots(buildVerificationSnapshotFromDocument(normalized), report) : {
+      ok: false,
+      mismatches: [{ path: 'report', expected: 'saved report', actual: null }],
+    }
+
+    if (!verification.ok) {
+      log('SQL verification mismatch', {
+        reportId,
+        codigo: normalized.codigo,
+        summary: verification.mismatches
+          .slice(0, 3)
+          .map((item) => `${item.path}: esperado ${JSON.stringify(item.expected)} / SQL ${JSON.stringify(item.actual)}`)
+          .join(' | '),
+        mismatches: verification.mismatches.slice(0, 20),
+      })
+    } else {
+      log('SQL verification passed', { reportId, codigo: normalized.codigo })
+    }
 
     return {
       ok: true,
@@ -480,6 +561,7 @@ async function saveDocumentToSqlServer(document) {
       elementCount: normalized.elementos.length,
       savedAt: new Date().toISOString(),
       report,
+      verification,
     }
   } catch (error) {
     await transaction.rollback()
@@ -564,4 +646,5 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`SQL API listening on http://127.0.0.1:${PORT}`)
 })
+
 

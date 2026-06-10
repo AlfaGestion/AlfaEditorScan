@@ -657,7 +657,7 @@ export function getElementDisplayValue(element: EditorElement, data: SampleData)
       value = data.date
       break
     case 'textoFijo':
-      value = element.text || 'Texto fijo'
+      value = replaceSqlPlaceholders(element.text || 'Texto fijo', data)
       break
     case 'logo':
       value = element.text || 'LOGO'
@@ -668,6 +668,23 @@ export function getElementDisplayValue(element: EditorElement, data: SampleData)
   }
 
   return element.uppercase ? value.toUpperCase() : value
+}
+
+function replaceSqlPlaceholders(source: string, data: SampleData): string {
+  const replacements: Record<string, string> = {
+    codigoarticulo: data.internalCode,
+    codigobarra: data.barcode,
+    precio: data.price,
+    empresa: data.companyName,
+    descripcion: data.description,
+    stock: data.stock,
+    fecha: data.date,
+  }
+
+  return source.replace(/\{([^}]+)\}/g, (match, token) => {
+    const replacement = replacements[String(token).trim().toLowerCase()]
+    return replacement ?? match
+  })
 }
 
 export function escapeSqlLiteral(value: string): string {
@@ -770,20 +787,14 @@ export function buildSqlScript(document: LabelDocument): string {
 
   const detailRows = document.elementos
     .map((element, index) => {
-      const campo = getDetalleCampo(element.tipo)
-      const textoFijo = getDetalleTextoFijo(element)
-      const alineacion = element.align || 'left'
-      const tipoElemento = escapeSqlLiteral(element.tipo)
-      const campoLiteral = campo ? `N'${escapeSqlLiteral(campo)}'` : 'NULL'
-      const textoFijoLiteral = textoFijo ? `N'${escapeSqlLiteral(textoFijo)}'` : 'NULL'
+      const detalle = editorElementToSqlDetalle(element, index + 1)
+      const textoFijoLiteral = detalle.TextoFijo === null ? 'NULL' : `N'${escapeSqlLiteral(detalle.TextoFijo)}'`
 
-      return `  (@ReporteId, N'${tipoElemento}', ${campoLiteral}, ${textoFijoLiteral}, ${round(
-        element.x,
-      )}, ${round(element.y)}, ${round(element.width)}, ${round(element.height)}, ${round(
-        element.fontSize,
-      )}, ${element.fontWeight === 'bold' ? 1 : 0}, ${element.italica ? 1 : 0}, N'${escapeSqlLiteral(
-        alineacion,
-      )}', ${element.visible ? 1 : 0}, ${index + 1}, ${getDetalleMaxLineas(element)}, 0, GETDATE())`
+      return `  (@ReporteId, N'${detalle.TipoElemento}', N'${escapeSqlLiteral(detalle.Campo)}', ${textoFijoLiteral}, ${detalle.X}, ${detalle.Y}, ${detalle.Ancho}, ${detalle.Alto}, ${detalle.TamanoFuente}, ${
+        detalle.Negrita ? 1 : 0
+      }, ${detalle.Italica ? 1 : 0}, N'${escapeSqlLiteral(detalle.Alineacion)}', ${detalle.Visible ? 1 : 0}, ${detalle.Orden}, ${detalle.MaxLineas}, ${
+        detalle.Mayuscula ? 1 : 0
+      }, GETDATE())`
     })
     .join(',\n')
 
@@ -868,56 +879,55 @@ ${detailRows};
 `
 }
 
-function getDetalleCampo(tipo: ElementType): string | null {
-  switch (tipo) {
-    case 'empresa':
-      return 'Empresa'
-    case 'descripcion':
-      return 'Descripcion'
-    case 'precio':
-      return 'Precio'
-    case 'codigoArticulo':
-      return 'CodigoArticulo'
-    case 'codigoBarra':
-      return 'CodigoBarra'
-    case 'stock':
-      return 'Stock'
-    case 'fecha':
-      return 'Fecha'
-    case 'textoFijo':
-    case 'linea':
-    case 'logo':
-      return 'TextoFijo'
-  }
+export type SqlTipoElemento = 'Dato' | 'texto' | 'precio' | 'codigobarra' | 'linea'
+
+export interface SqlDetalle {
+  TipoElemento: SqlTipoElemento
+  Campo: 'Empresa' | 'Descripcion' | 'Precio' | 'CodigoArticulo' | 'CodigoBarra' | 'Stock' | 'Fecha' | 'TextoFijo' | 'Logo'
+  TextoFijo: string | null
+  X: number
+  Y: number
+  Ancho: number
+  Alto: number
+  TamanoFuente: number
+  Negrita: boolean
+  Italica: boolean
+  Alineacion: TextAlign
+  Visible: boolean
+  Orden: number
+  MaxLineas: number
+  Mayuscula: boolean
 }
 
-function getDetalleTextoFijo(element: EditorElement): string | null {
-  if (element.tipo === 'textoFijo') return element.text || 'Texto fijo'
-  if (element.tipo === 'linea') return null
-  if (element.tipo === 'logo') return element.text || 'Logo'
-  return null
-}
-
-function getDetalleMaxLineas(element: EditorElement): number {
-  return Math.max(1, Math.round(element.maxLineas || (element.tipo === 'descripcion' ? 3 : element.tipo === 'textoFijo' ? 2 : 1)))
-}
-
-export type AlfaScanTipoElemento = 'texto' | 'precio' | 'codigo_barra' | 'linea' | 'logo'
-
-export interface AlfaScanLayoutItem extends EditorElement {
-  campo: string
-  tipoElemento: AlfaScanTipoElemento
+export interface SqlVerificationDetail {
+  tipoElemento: SqlTipoElemento
+  campo: SqlDetalle['Campo']
   textoFijo: string | null
-  displayValue: string
-  order: number
+  x: number
+  y: number
   ancho: number
   alto: number
   tamanoFuente: number
   negrita: boolean
+  italica: boolean
   alineacion: TextAlign
   visible: boolean
+  orden: number
   maxLineas: number
   mayuscula: boolean
+}
+
+export interface SqlVerificationSnapshot {
+  codigo: string
+  nombre: string
+  anchoPapelMm: number
+  altoMm: number | null
+  detalles: SqlVerificationDetail[]
+}
+
+export interface AlfaScanLayoutItem extends EditorElement {
+  sqlDetalle: SqlDetalle
+  displayValue: string
 }
 
 export interface AlfaScanLayout {
@@ -928,7 +938,26 @@ export interface AlfaScanLayout {
   items: AlfaScanLayoutItem[]
 }
 
-function getAlfaScanCampo(tipo: ElementType): string {
+function getSqlTipoElemento(tipo: ElementType): SqlTipoElemento {
+  switch (tipo) {
+    case 'empresa':
+      return 'Dato'
+    case 'descripcion':
+      return 'texto'
+    case 'precio':
+      return 'precio'
+    case 'codigoBarra':
+      return 'codigobarra'
+    case 'linea':
+      return 'linea'
+    case 'textoFijo':
+      return 'texto'
+    default:
+      return 'texto'
+  }
+}
+
+function getSqlCampo(tipo: ElementType): SqlDetalle['Campo'] {
   switch (tipo) {
     case 'empresa':
       return 'Empresa'
@@ -944,24 +973,24 @@ function getAlfaScanCampo(tipo: ElementType): string {
       return 'Stock'
     case 'fecha':
       return 'Fecha'
-    case 'textoFijo':
-      return 'TextoFijo'
     case 'linea':
+      return 'TextoFijo'
+    case 'textoFijo':
       return 'TextoFijo'
     case 'logo':
       return 'Logo'
+    default:
+      return 'TextoFijo'
   }
 }
 
-function getAlfaScanTipoElemento(tipo: ElementType): AlfaScanTipoElemento {
-  if (tipo === 'codigoBarra') return 'codigo_barra'
-  if (tipo === 'precio') return 'precio'
-  if (tipo === 'linea') return 'linea'
-  if (tipo === 'logo') return 'logo'
-  return 'texto'
+function getSqlTextoFijo(element: EditorElement): string | null {
+  if (element.tipo === 'linea') return '------------'
+  if (element.tipo === 'textoFijo') return element.text && element.text.trim() ? element.text : null
+  return null
 }
 
-function getAlfaScanDisplayValue(element: EditorElement, sampleData: SampleData): string {
+function getSqlDisplayValue(element: EditorElement, sampleData: SampleData): string {
   switch (element.tipo) {
     case 'empresa':
       return sampleData.companyName
@@ -978,11 +1007,79 @@ function getAlfaScanDisplayValue(element: EditorElement, sampleData: SampleData)
     case 'fecha':
       return sampleData.date
     case 'textoFijo':
-      return element.text || 'Texto fijo'
+      return replaceSqlPlaceholders(element.text || '', sampleData)
     case 'linea':
-      return element.text || ''
+      return '------------'
     case 'logo':
       return element.text || 'Logo'
+  }
+}
+
+export function editorElementToSqlDetalle(element: EditorElement, order: number): SqlDetalle {
+  return {
+    TipoElemento: getSqlTipoElemento(element.tipo),
+    Campo: getSqlCampo(element.tipo),
+    TextoFijo: getSqlTextoFijo(element),
+    X: round(element.x),
+    Y: round(element.y),
+    Ancho: round(element.width),
+    Alto: round(element.height),
+    TamanoFuente: round(element.fontSize),
+    Negrita: element.fontWeight === 'bold',
+    Italica: element.italica || element.fontStyle === 'italic',
+    Alineacion: element.align,
+    Visible: element.visible,
+    Orden: order,
+    MaxLineas: Math.max(1, Math.round(element.maxLineas || (element.tipo === 'descripcion' ? 3 : element.tipo === 'textoFijo' ? 2 : 1))),
+    Mayuscula: element.uppercase,
+  }
+}
+
+export function sqlDetalleToEditorElement(detail: Partial<SqlDetalle> & { id?: string }, index = 0): EditorElement {
+  const tipo = (() => {
+    const tipoElemento = String(detail.TipoElemento ?? '').trim().toLowerCase()
+    const campo = String(detail.Campo ?? '').trim().toLowerCase()
+    if (tipoElemento === 'dato' || campo === 'empresa') return 'empresa'
+    if (tipoElemento === 'texto' && campo === 'descripcion') return 'descripcion'
+    if (tipoElemento === 'precio') return 'precio'
+    if (campo === 'codigoarticulo') return 'codigoArticulo'
+    if (tipoElemento === 'codigobarra' || campo === 'codigobarra') return 'codigoBarra'
+    if (campo === 'stock') return 'stock'
+    if (campo === 'fecha') return 'fecha'
+    if (tipoElemento === 'linea') return 'linea'
+    if (tipoElemento === 'texto' && campo === 'textofijo') return 'textoFijo'
+    if (campo === 'textofijo' && String(detail.TextoFijo ?? '').trim()) return 'textoFijo'
+    if (campo === 'logo') return 'logo'
+    return 'textoFijo'
+  })()
+
+  return {
+    id: typeof detail.id === 'string' ? detail.id : uid(`imported_${index}`),
+    tipo,
+    nombre: getElementName(tipo),
+    x: toNumber(detail.X, 0),
+    y: toNumber(detail.Y, 0),
+    width: Math.max(24, toNumber(detail.Ancho, 120)),
+    height: Math.max(12, toNumber(detail.Alto, 24)),
+    fontSize: clamp(toNumber(detail.TamanoFuente, 14), 8, 80),
+    fontWeight: detail.Negrita ? 'bold' : 'normal',
+    fontStyle: detail.Italica ? 'italic' : 'normal',
+    italica: Boolean(detail.Italica),
+    underline: false,
+    fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
+    uppercase: Boolean(detail.Mayuscula),
+    align: detail.Alineacion === 'center' || detail.Alineacion === 'right' ? detail.Alineacion : 'left',
+    visible: detail.Visible !== false,
+    color: '#111827',
+    text:
+      tipo === 'linea'
+        ? '------------'
+        : tipo === 'textoFijo'
+          ? String(detail.TextoFijo ?? '')
+          : '',
+    imageUrl: '',
+    lineHeight: 1.1,
+    maxLineas: Math.max(1, Math.round(toNumber(detail.MaxLineas, tipo === 'descripcion' ? 3 : tipo === 'textoFijo' ? 2 : 1))),
   }
 }
 
@@ -994,55 +1091,10 @@ export function buildAlfaScanLayout(document: LabelDocument, sampleData: SampleD
     altoPapelMm: document.altoPapelMm,
     items: document.elementos.map((element, index) => ({
       ...element,
-      campo: getAlfaScanCampo(element.tipo),
-      tipoElemento: getAlfaScanTipoElemento(element.tipo),
-      textoFijo:
-        element.tipo === 'textoFijo'
-          ? element.text || 'Texto fijo'
-          : element.tipo === 'linea'
-            ? null
-            : element.tipo === 'logo'
-              ? element.text || 'Logo'
-              : null,
-      displayValue: element.uppercase ? getAlfaScanDisplayValue(element, sampleData).toUpperCase() : getAlfaScanDisplayValue(element, sampleData),
-      order: index + 1,
-      x: round(element.x),
-      y: round(element.y),
-      ancho: round(element.width),
-      alto: round(element.height),
-      tamanoFuente: round(element.fontSize),
-      negrita: element.fontWeight === 'bold',
-      alineacion: element.align,
-      visible: element.visible,
-      maxLineas: getDetalleMaxLineas(element),
-      mayuscula: element.uppercase,
+      sqlDetalle: editorElementToSqlDetalle(element, index + 1),
+      displayValue: getSqlDisplayValue(element, sampleData),
     })),
   }
-}
-
-export interface SqlVerificationDetail {
-  tipoElemento: string
-  campo: string | null
-  textoFijo: string | null
-  x: number
-  y: number
-  ancho: number
-  alto: number
-  tamanoFuente: number
-  negrita: boolean
-  alineacion: string
-  visible: boolean
-  orden: number
-  maxLineas: number
-  mayuscula: boolean
-}
-
-export interface SqlVerificationSnapshot {
-  codigo: string
-  nombre: string
-  anchoPapelMm: number
-  altoMm: number | null
-  detalles: SqlVerificationDetail[]
 }
 
 export function buildSqlVerificationSnapshot(document: LabelDocument): SqlVerificationSnapshot {
@@ -1054,20 +1106,21 @@ export function buildSqlVerificationSnapshot(document: LabelDocument): SqlVerifi
     anchoPapelMm: layout.anchoPapelMm,
     altoMm: layout.altoPapelMm,
     detalles: layout.items.map((item) => ({
-      tipoElemento: item.tipoElemento,
-      campo: item.campo,
-      textoFijo: item.textoFijo,
-      x: item.x,
-      y: item.y,
-      ancho: item.ancho,
-      alto: item.alto,
-      tamanoFuente: item.tamanoFuente,
-      negrita: item.negrita,
-      alineacion: item.alineacion,
-      visible: item.visible,
-      orden: item.order,
-      maxLineas: item.maxLineas,
-      mayuscula: item.mayuscula,
+      tipoElemento: item.sqlDetalle.TipoElemento,
+      campo: item.sqlDetalle.Campo,
+      textoFijo: item.sqlDetalle.TextoFijo,
+      x: item.sqlDetalle.X,
+      y: item.sqlDetalle.Y,
+      ancho: item.sqlDetalle.Ancho,
+      alto: item.sqlDetalle.Alto,
+      tamanoFuente: item.sqlDetalle.TamanoFuente,
+      negrita: item.sqlDetalle.Negrita,
+      italica: item.sqlDetalle.Italica,
+      alineacion: item.sqlDetalle.Alineacion,
+      visible: item.sqlDetalle.Visible,
+      orden: item.sqlDetalle.Orden,
+      maxLineas: item.sqlDetalle.MaxLineas,
+      mayuscula: item.sqlDetalle.Mayuscula,
     })),
   }
 }
@@ -1096,57 +1149,6 @@ function normalizeAlfaScanFormatCode(value: unknown): AlfaScanFormatCode {
   return 'gondola'
 }
 
-function mapAlfaScanElementToEditor(item: unknown, index: number): EditorElement {
-  const source = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
-  const key = String(source.key ?? source.valueKey ?? source.campo ?? source.Campo ?? '').trim().toLowerCase()
-  const type = String(source.type ?? source.tipoElemento ?? source.TipoElemento ?? '').trim().toLowerCase()
-
-  const tipo: ElementType = (() => {
-    if (type === 'logo' || key === 'logo') return 'logo'
-    if (type === 'codigo_barra' || type === 'barcode' || key === 'codigo_barra' || key === 'barcode') return 'codigoBarra'
-    if (type === 'precio' || key === 'precio') return 'precio'
-    if (type === 'texto' || key === 'texto' || key === 'texto fijo') return 'textoFijo'
-    if (key === 'empresa' || key === 'companyname' || key === 'company_name') return 'empresa'
-    if (key === 'descripcion' || key === 'description') return 'descripcion'
-    if (key === 'precio' || key === 'price') return 'precio'
-    if (key === 'codigoarticulo' || key === 'codigo_articulo' || key === 'internalcode' || key === 'code') return 'codigoArticulo'
-    if (key === 'codigobarra' || key === 'codigo_barra' || key === 'barcode') return 'codigoBarra'
-    if (key === 'stock') return 'stock'
-    if (key === 'fecha' || key === 'date') return 'fecha'
-    if (key === 'linea' || key === 'line' || key === 'separator') return 'linea'
-    return 'textoFijo'
-  })()
-
-  const sampleText = String(source.sampleText ?? source.textoFijo ?? source.TextoFijo ?? source.text ?? source.Text ?? '').trim()
-
-  return {
-    id: typeof source.id === 'string' ? source.id : uid(`imported_${index}`),
-    tipo,
-    nombre: typeof source.label === 'string' ? source.label : getElementName(tipo),
-    x: toNumber(source.x, 20 + index * 12),
-    y: toNumber(source.y, 20 + index * 12),
-    width: Math.max(24, toNumber(source.width, 120)),
-    height: Math.max(12, toNumber(source.height, 24)),
-    fontSize: clamp(toNumber(source.fontSize, 14), 8, 80),
-    fontWeight: String(source.fontWeight ?? '400') === '700' ? 'bold' : 'normal',
-    fontStyle: String(source.fontStyle ?? 'normal') === 'italic' ? 'italic' : 'normal',
-    italica: source.italica === true || String(source.fontStyle ?? 'normal') === 'italic',
-    underline: source.underline === true,
-    fontFamily:
-      typeof source.fontFamily === 'string' && source.fontFamily.trim()
-        ? source.fontFamily
-        : 'Aptos, Segoe UI, Arial, sans-serif',
-    align: source.align === 'center' || source.align === 'right' ? (source.align as TextAlign) : 'left',
-    visible: source.visible !== false,
-    color: typeof source.color === 'string' ? source.color : '#111827',
-    text: tipo === 'textoFijo' || tipo === 'linea' || tipo === 'logo' ? sampleText : '',
-    imageUrl: typeof source.imageUrl === 'string' ? source.imageUrl : '',
-    lineHeight: clamp(toNumber(source.lineHeight, 1.15), 0.8, 2),
-    uppercase: source.uppercase === true,
-    maxLineas: Math.max(1, Math.round(toNumber(source.maxLineas, tipo === 'descripcion' ? 3 : tipo === 'textoFijo' ? 2 : 1))),
-  }
-}
-
 export function serializeAlfaScanDocument(document: LabelDocument): string {
   const layout = buildAlfaScanLayout(document, sampleData)
   return JSON.stringify(
@@ -1155,23 +1157,8 @@ export function serializeAlfaScanDocument(document: LabelDocument): string {
       nombre: layout.nombre,
       anchoPapelMm: layout.anchoPapelMm,
       altoPapelMm: layout.altoPapelMm,
-      elementos: layout.items.map((item) => ({
-        TipoElemento: item.tipoElemento,
-        Campo: item.campo,
-        TextoFijo: item.textoFijo,
-        X: item.x,
-        Y: item.y,
-        Ancho: item.ancho,
-        Alto: item.alto,
-        TamanoFuente: item.tamanoFuente,
-        Negrita: item.negrita,
-        Italica: item.italica,
-        Alineacion: item.alineacion,
-        Visible: item.visible,
-        Orden: item.order,
-        MaxLineas: item.maxLineas,
-        Mayuscula: item.mayuscula,
-      })),
+      detalles: layout.items.map((item) => item.sqlDetalle),
+      elementos: layout.items.map((item) => item.sqlDetalle),
     },
     null,
     2,
@@ -1181,11 +1168,16 @@ export function serializeAlfaScanDocument(document: LabelDocument): string {
 export function parseAlfaScanDocumentJson(source: string, fallbackFormat: PaperFormat): LabelDocument {
   const parsed = JSON.parse(source) as Record<string, unknown>
 
-  if (Array.isArray(parsed.elements) || Array.isArray(parsed.elementos)) {
-    const elements: unknown[] = Array.isArray(parsed.elements)
+  const sqlRows = Array.isArray((parsed as { detalles?: unknown }).detalles)
+    ? ((parsed as { detalles: unknown[] }).detalles as unknown[])
+    : Array.isArray(parsed.elements)
       ? (parsed.elements as unknown[])
-      : (parsed.elementos as unknown[])
-    const elementos = elements.map((item, index) => mapAlfaScanElementToEditor(item, index))
+      : Array.isArray(parsed.elementos)
+        ? (parsed.elementos as unknown[])
+        : []
+
+  if (sqlRows.length > 0) {
+    const elementos = sqlRows.map((item, index) => sqlDetalleToEditorElement(item as Partial<SqlDetalle>, index))
     return {
       codigo: normalizeAlfaScanFormatCode(parsed.codigo),
       nombre: typeof parsed.nombre === 'string' ? parsed.nombre : fallbackFormat.nombre,
@@ -1230,14 +1222,15 @@ export function buildAlfaScanSqlScript(document: LabelDocument): string {
   const reportName = escapeSqlLiteral(layout.nombre)
   const reportCode = escapeSqlLiteral(layout.codigo)
   const detailRows = layout.items
-    .map((item) => {
-      const campoLiteral = item.campo ? `N'${escapeSqlLiteral(item.campo)}'` : 'NULL'
-      const textoFijoLiteral = item.textoFijo ? `N'${escapeSqlLiteral(item.textoFijo)}'` : 'NULL'
+    .map((item, index) => {
+      const detalle = editorElementToSqlDetalle(item, index + 1)
+      const campoLiteral = `N'${escapeSqlLiteral(detalle.Campo)}'`
+      const textoFijoLiteral = detalle.TextoFijo === null ? 'NULL' : `N'${escapeSqlLiteral(detalle.TextoFijo)}'`
 
-      return `  (@ReporteId, N'${item.tipoElemento}', ${campoLiteral}, ${textoFijoLiteral}, ${item.x}, ${item.y}, ${item.ancho}, ${item.alto}, ${item.tamanoFuente}, ${
-        item.negrita ? 1 : 0
-      }, ${item.italica ? 1 : 0}, N'${escapeSqlLiteral(item.alineacion)}', ${item.visible ? 1 : 0}, ${item.order}, ${item.maxLineas}, ${
-        item.mayuscula ? 1 : 0
+      return `  (@ReporteId, N'${detalle.TipoElemento}', ${campoLiteral}, ${textoFijoLiteral}, ${detalle.X}, ${detalle.Y}, ${detalle.Ancho}, ${detalle.Alto}, ${detalle.TamanoFuente}, ${
+        detalle.Negrita ? 1 : 0
+      }, ${detalle.Italica ? 1 : 0}, N'${escapeSqlLiteral(detalle.Alineacion)}', ${detalle.Visible ? 1 : 0}, ${detalle.Orden}, ${detalle.MaxLineas}, ${
+        detalle.Mayuscula ? 1 : 0
       }, GETDATE())`
     })
     .join(',\n')

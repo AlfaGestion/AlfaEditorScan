@@ -542,6 +542,10 @@ function App() {
         elementCount?: number
         savedAt?: string
         report?: SqlVerificationSnapshot | null
+        verification?: {
+          ok?: boolean
+          mismatches?: Array<{ path: string; expected: unknown; actual: unknown }>
+        }
       }
 
       pushSaveDebug('save_response', {
@@ -560,9 +564,16 @@ function App() {
       setSaveMessage('Verificando SQL...')
 
       const savedReport = savePayload.report
+      const savedVerification = savePayload.verification
       if (savedReport) {
         const expected = buildSqlVerificationSnapshot(documentState)
-        const verification = compareSqlVerificationSnapshots(expected, savedReport)
+        const verification =
+          savedVerification && typeof savedVerification.ok === 'boolean'
+            ? {
+                ok: savedVerification.ok,
+                mismatches: Array.isArray(savedVerification.mismatches) ? savedVerification.mismatches : [],
+              }
+            : compareSqlVerificationSnapshots(expected, savedReport)
         pushSaveDebug('verify_from_save', {
           ok: verification.ok,
           mismatches: verification.mismatches.slice(0, 10),
@@ -576,7 +587,12 @@ function App() {
           const detail = summary || 'La plantilla guardada no coincide con SQL.'
           setSaveStatus('mismatch')
           setSaveMessage('Guardó pero no coincide con SQL')
-          pushSaveDebug('save_mismatch', { summary, mismatches: verification.mismatches })
+          pushSaveDebug('save_mismatch', {
+            summary,
+            mismatches: verification.mismatches,
+            expected: expected.detalles.slice(0, 5),
+            actual: savedReport.detalles.slice(0, 5),
+          })
           notify('error', detail)
           return
         }
@@ -620,7 +636,13 @@ function App() {
       }
 
       const expected = buildSqlVerificationSnapshot(documentState)
-      const verification = compareSqlVerificationSnapshots(expected, verifyPayload.report)
+      const verification =
+        savePayload.verification && typeof savePayload.verification.ok === 'boolean'
+          ? {
+              ok: savePayload.verification.ok,
+              mismatches: Array.isArray(savePayload.verification.mismatches) ? savePayload.verification.mismatches : [],
+            }
+          : compareSqlVerificationSnapshots(expected, verifyPayload.report)
       pushSaveDebug('verify_from_get', {
         ok: verification.ok,
         mismatches: verification.mismatches.slice(0, 10),
@@ -634,7 +656,12 @@ function App() {
         const detail = summary || 'La plantilla guardada no coincide con SQL.'
         setSaveStatus('mismatch')
         setSaveMessage('Guardó pero no coincide con SQL')
-        pushSaveDebug('save_mismatch', { summary, mismatches: verification.mismatches })
+        pushSaveDebug('save_mismatch', {
+          summary,
+          mismatches: verification.mismatches,
+          expected: expected.detalles.slice(0, 5),
+          actual: verifyPayload.report.detalles.slice(0, 5),
+        })
         notify('error', detail)
         return
       }
