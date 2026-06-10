@@ -14,10 +14,14 @@ import {
   getElementById,
   getElementName,
   getPaperFormat,
+  fontSourceOptions,
+  inferTipoFuente,
+  logoLibrary,
   paperFormats,
   removeElement,
   STORAGE_KEY,
   toggleVisibility,
+  tipoFuenteToFontFamily,
   updateElement,
   type AlfaScanLayoutItem,
   type EditorElement,
@@ -139,7 +143,8 @@ function normalizeStoredDocument(document: LabelDocument): LabelDocument {
       fontStyle: element.fontStyle === 'italic' ? 'italic' : 'normal',
       italica: element.italica === true || element.fontStyle === 'italic',
       underline: Boolean(element.underline),
-      fontFamily: element.fontFamily || 'Aptos, Segoe UI, Arial, sans-serif',
+      tipoFuente: inferTipoFuente(element.tipoFuente || element.fontFamily),
+      fontFamily: tipoFuenteToFontFamily(element.tipoFuente || element.fontFamily),
       uppercase: Boolean(element.uppercase),
       maxLineas: Number(element.maxLineas ?? 1),
     })),
@@ -497,12 +502,14 @@ function App() {
         ['tipoElemento', expectedRow.tipoElemento, actualRow.tipoElemento],
         ['campo', expectedRow.campo, actualRow.campo],
         ['textoFijo', expectedRow.textoFijo, actualRow.textoFijo],
+        ['tipoFuente', expectedRow.tipoFuente, actualRow.tipoFuente],
         ['x', expectedRow.x, actualRow.x],
         ['y', expectedRow.y, actualRow.y],
         ['ancho', expectedRow.ancho, actualRow.ancho],
         ['alto', expectedRow.alto, actualRow.alto],
         ['tamanoFuente', expectedRow.tamanoFuente, actualRow.tamanoFuente],
         ['negrita', expectedRow.negrita, actualRow.negrita],
+        ['italica', expectedRow.italica, actualRow.italica],
         ['alineacion', expectedRow.alineacion, actualRow.alineacion],
         ['visible', expectedRow.visible, actualRow.visible],
         ['orden', expectedRow.orden, actualRow.orden],
@@ -710,6 +717,18 @@ function App() {
   function renderElementNode(element: AlfaScanLayoutItem, index: number, interactive: boolean, scale = 1) {
     const hiddenClass = element.visible ? '' : 'is-hidden'
     const isSelected = interactive && element.id === selectedId
+    const isBarcodeFont = element.tipoFuente === 'Barcode / Código de barra'
+    const barcodeValueStyle = isBarcodeFont
+      ? {
+          fontFamily: '"Libre Barcode 128 Text", monospace',
+          fontWeight: 400,
+          fontStyle: 'normal' as const,
+          lineHeight: 1,
+          letterSpacing: 0,
+          whiteSpace: 'nowrap',
+          wordBreak: 'normal' as const,
+        }
+      : {}
 
     const content = (
       <div
@@ -743,6 +762,7 @@ function App() {
                 overflow: 'hidden',
                 whiteSpace: 'normal',
                 wordBreak: 'break-word',
+                ...(element.tipo === 'codigoBarra' ? barcodeValueStyle : {}),
               }}
             >
               {element.displayValue}
@@ -929,6 +949,29 @@ function App() {
                     A+
                   </button>
                 </div>
+              </label>
+              <label className="toolbar-control toolbar-select">
+                <span>Tipo de letra</span>
+                <select
+                  value={selectedElement.tipoFuente || inferTipoFuente(selectedElement.fontFamily)}
+                  onChange={(event) => {
+                    const nextTipoFuente = event.target.value
+                    const isBarcodeFont = nextTipoFuente === 'Barcode / Código de barra'
+                    patchSelectedElement({
+                      tipoFuente: nextTipoFuente,
+                      fontFamily: tipoFuenteToFontFamily(nextTipoFuente),
+                      fontWeight: isBarcodeFont ? 'normal' : selectedElement.fontWeight,
+                      fontStyle: isBarcodeFont ? 'normal' : selectedElement.fontStyle,
+                      italica: isBarcodeFont ? false : selectedElement.italica,
+                    })
+                  }}
+                >
+                  {fontSourceOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="toolbar-color" title="Color">
                 <span>Color</span>
@@ -1161,6 +1204,28 @@ function App() {
                       onChange={(event) => patchSelectedElement({ maxLineas: Number(event.target.value) })}
                     />
                   </div>
+                  {selectedElement.tipo === 'logo' ? (
+                    <div className="field" style={{ gridColumn: '1 / -1' }}>
+                      <label htmlFor="inspector-logo">Logo</label>
+                      <select
+                        id="inspector-logo"
+                        value={selectedElement.imageUrl || ''}
+                        onChange={(event) =>
+                          patchSelectedElement({
+                            imageUrl: event.target.value,
+                            text: event.target.value ? '' : 'LOGO',
+                          })
+                        }
+                      >
+                        <option value="">Texto LOGO</option>
+                        {logoLibrary.map((logo) => (
+                          <option key={logo.id} value={logo.src}>
+                            {logo.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <p className="helper-text">Selecciona un elemento para ver sus propiedades avanzadas.</p>

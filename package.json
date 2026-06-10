@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/libre-barcode-128-text": "^5.2.8",
     "dotenv": "^17.2.3",
     "lucide-react": "^1.17.0",
     "mssql": "^11.0.1",

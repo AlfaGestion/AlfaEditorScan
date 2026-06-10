@@ -92,6 +92,25 @@ function normalizeReportCode(value) {
   return normalized || 'gondola'
 }
 
+function normalizeTipoFuente(value) {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (!normalized || normalized === 'default') return 'Default'
+  if (normalized.includes('barcode')) return 'Barcode / Código de barra'
+  if (normalized.includes('courier')) return 'Courier New'
+  if (normalized.includes('consolas')) return 'Consolas'
+  if (normalized.includes('times new roman') || normalized.includes('times')) return 'Times New Roman'
+  if (normalized.includes('georgia')) return 'Georgia'
+  if (normalized.includes('monospace')) return 'Monospace'
+  if (normalized.includes('montserrat')) return 'Montserrat'
+  if (normalized.includes('poppins')) return 'Poppins'
+  if (normalized.includes('open sans')) return 'Open Sans'
+  if (normalized.includes('roboto')) return 'Roboto'
+  if (normalized.includes('helvetica')) return 'Helvetica'
+  if (normalized.includes('inter')) return 'Inter'
+  if (normalized.includes('arial')) return 'Arial'
+  return 'Default'
+}
+
 function isElementType(value) {
   return (
     value === 'empresa' ||
@@ -192,6 +211,7 @@ function normalizeDocument(document) {
         fontWeight: item?.fontWeight === 'normal' ? 'normal' : 'bold',
         fontStyle: item?.fontStyle === 'italic' ? 'italic' : 'normal',
         italica: item?.italica === true || item?.fontStyle === 'italic',
+        tipoFuente: normalizeTipoFuente(item?.tipoFuente ?? item?.TipoFuente ?? item?.fontFamily),
         align: item?.align === 'center' || item?.align === 'right' ? item.align : 'left',
         visible: item?.visible !== false,
         color: typeof item?.color === 'string' ? item.color : '#111827',
@@ -219,13 +239,14 @@ function buildVerificationSnapshotFromDocument(document) {
       tipoElemento: mapTypeToSql(element.tipo),
       campo: mapFieldToSql(element.tipo),
       textoFijo: getFixedText(element),
+      tipoFuente: normalizeTipoFuente(element.tipoFuente ?? element.fontFamily),
       x: Math.round(element.x),
       y: Math.round(element.y),
       ancho: Math.round(element.width),
       alto: Math.round(element.height),
       tamanoFuente: Math.round(element.fontSize),
       negrita: element.fontWeight === 'bold',
-      italica: element.italica === true || element.fontStyle === 'italic',
+      italica: element.italica === true,
       alineacion: getDetalleAlineacion(element),
       visible: element.visible !== false,
       orden: index + 1,
@@ -259,12 +280,14 @@ function compareVerificationSnapshots(expected, actual) {
     compareField(`${base}.tipoElemento`, expectedRow.tipoElemento, actualRow.tipoElemento)
     compareField(`${base}.campo`, expectedRow.campo, actualRow.campo)
     compareField(`${base}.textoFijo`, expectedRow.textoFijo, actualRow.textoFijo)
+    compareField(`${base}.tipoFuente`, expectedRow.tipoFuente, actualRow.tipoFuente)
     compareField(`${base}.x`, expectedRow.x, actualRow.x)
     compareField(`${base}.y`, expectedRow.y, actualRow.y)
     compareField(`${base}.ancho`, expectedRow.ancho, actualRow.ancho)
     compareField(`${base}.alto`, expectedRow.alto, actualRow.alto)
     compareField(`${base}.tamanoFuente`, expectedRow.tamanoFuente, actualRow.tamanoFuente)
     compareField(`${base}.negrita`, expectedRow.negrita, actualRow.negrita)
+    compareField(`${base}.italica`, expectedRow.italica, actualRow.italica)
     compareField(`${base}.alineacion`, expectedRow.alineacion, actualRow.alineacion)
     compareField(`${base}.visible`, expectedRow.visible, actualRow.visible)
     compareField(`${base}.orden`, expectedRow.orden, actualRow.orden)
@@ -283,12 +306,14 @@ function rowToVerificationDetail(row, index) {
     tipoElemento: String(row.TipoElemento ?? '').trim(),
     campo: row.Campo == null || String(row.Campo).trim() === '' ? null : String(row.Campo).trim(),
     textoFijo: row.TextoFijo == null || String(row.TextoFijo).length === 0 ? null : String(row.TextoFijo),
+    tipoFuente: normalizeTipoFuente(row.TipoFuente),
     x: toNumber(row.X, 0),
     y: toNumber(row.Y, 0),
     ancho: toNumber(row.Ancho, 0),
     alto: toNumber(row.Alto, 0),
     tamanoFuente: toNumber(row.TamanoFuente, 0),
     negrita: Boolean(row.Negrita),
+    italica: Boolean(row.Italica),
     alineacion: typeof row.Alineacion === 'string' && row.Alineacion.trim() ? row.Alineacion : 'left',
     visible: Boolean(row.Visible),
     orden: toNumber(row.Orden, index + 1),
@@ -316,7 +341,6 @@ async function loadReportSnapshotByCodigo(codigo) {
   })
 
   try {
-    const includeItalic = await hasColumn(pool, 'dbo.Scan_ReporteDetalle', 'Italica').catch(() => false)
     const reportResult = await pool
       .request()
       .input('Codigo', sql.NVarChar(50), normalizedCodigo)
@@ -344,13 +368,14 @@ async function loadReportSnapshotByCodigo(codigo) {
           TipoElemento,
           Campo,
           TextoFijo,
+          TipoFuente,
           X,
           Y,
           Ancho,
           Alto,
           TamanoFuente,
           Negrita,
-          ${includeItalic ? 'Italica,' : ''}
+          Italica,
           Alineacion,
           Visible,
           Orden,
@@ -377,57 +402,89 @@ async function loadReportSnapshotByCodigo(codigo) {
   }
 }
 
-function buildDetailTable(document, reportId, includeItalic = false) {
-  const table = new sql.Table('dbo.Scan_ReporteDetalle')
-  table.create = false
-  table.columns.add('IdReporte', sql.Int, { nullable: false })
-  table.columns.add('TipoElemento', sql.NVarChar(30), { nullable: false })
-  table.columns.add('Campo', sql.NVarChar(50), { nullable: true })
-  table.columns.add('TextoFijo', sql.NVarChar(250), { nullable: true })
-  table.columns.add('X', sql.Int, { nullable: false })
-  table.columns.add('Y', sql.Int, { nullable: false })
-  table.columns.add('Ancho', sql.Int, { nullable: false })
-  table.columns.add('Alto', sql.Int, { nullable: false })
-  table.columns.add('TamanoFuente', sql.Int, { nullable: false })
-  table.columns.add('Negrita', sql.Bit, { nullable: false })
-  if (includeItalic) {
-    table.columns.add('Italica', sql.Bit, { nullable: false })
-  }
-  table.columns.add('Alineacion', sql.NVarChar(20), { nullable: false })
-  table.columns.add('Visible', sql.Bit, { nullable: false })
-  table.columns.add('Orden', sql.Int, { nullable: false })
-  table.columns.add('MaxLineas', sql.Int, { nullable: false })
-  table.columns.add('Mayuscula', sql.Bit, { nullable: false })
-  table.columns.add('FechaModificacion', sql.DateTime, { nullable: true })
-
-  document.elementos.forEach((element, index) => {
-    const tipoElemento = mapTypeToSql(element.tipo)
-    const campo = mapFieldToSql(element.tipo)
-    const textoFijo = getFixedText(element)
-    const maxLineas = getSqlMaxLines(element)
-
-    table.rows.add(
-      reportId,
-      tipoElemento,
-      campo,
-      textoFijo,
-      Math.round(element.x),
-      Math.round(element.y),
-      Math.round(element.width),
-      Math.round(element.height),
-      Math.round(element.fontSize),
-      element.fontWeight === 'bold' ? 1 : 0,
-      ...(includeItalic ? [element.italica ? 1 : 0] : []),
-      getDetalleAlineacion(element),
-      element.visible ? 1 : 0,
-      index + 1,
-      maxLineas,
-      element.uppercase ? 1 : 0,
-      new Date(),
+async function insertDetailRows(transaction, document, reportId) {
+  const insertSql = `
+    INSERT INTO dbo.Scan_ReporteDetalle (
+      IdReporte,
+      TipoElemento,
+      Campo,
+      TextoFijo,
+      TipoFuente,
+      X,
+      Y,
+      Ancho,
+      Alto,
+      TamanoFuente,
+      Negrita,
+      Italica,
+      Alineacion,
+      Visible,
+      Orden,
+      MaxLineas,
+      Mayuscula,
+      FechaModificacion
     )
-  })
+    VALUES (
+      @IdReporte,
+    @TipoElemento,
+    @Campo,
+    @TextoFijo,
+    @TipoFuente,
+    @X,
+      @Y,
+      @Ancho,
+      @Alto,
+      @TamanoFuente,
+      @Negrita,
+      @Italica,
+      @Alineacion,
+      @Visible,
+      @Orden,
+      @MaxLineas,
+      @Mayuscula,
+      GETDATE()
+    );
+  `
 
-  return table
+  for (const [index, element] of document.elementos.entries()) {
+    const request = new sql.Request(transaction)
+    request.input('IdReporte', sql.Int, reportId)
+    request.input('TipoElemento', sql.NVarChar(30), mapTypeToSql(element.tipo))
+    request.input('Campo', sql.NVarChar(50), mapFieldToSql(element.tipo))
+    request.input('TextoFijo', sql.NVarChar(250), getFixedText(element))
+    request.input('TipoFuente', sql.NVarChar(100), normalizeTipoFuente(element.tipoFuente ?? element.fontFamily))
+    request.input('X', sql.Int, Math.round(element.x))
+    request.input('Y', sql.Int, Math.round(element.y))
+    request.input('Ancho', sql.Int, Math.round(element.width))
+    request.input('Alto', sql.Int, Math.round(element.height))
+    request.input('TamanoFuente', sql.Int, Math.round(element.fontSize))
+    request.input('Negrita', sql.Bit, element.fontWeight === 'bold' ? 1 : 0)
+    request.input('Italica', sql.Bit, element.italica === true ? 1 : 0)
+    request.input('Alineacion', sql.NVarChar(20), getDetalleAlineacion(element))
+    request.input('Visible', sql.Bit, element.visible ? 1 : 0)
+    request.input('Orden', sql.Int, index + 1)
+    request.input('MaxLineas', sql.Int, getSqlMaxLines(element))
+    request.input('Mayuscula', sql.Bit, element.uppercase ? 1 : 0)
+
+    try {
+      await request.query(insertSql)
+    } catch (insertError) {
+      log('SQL detail insert failed', {
+        reportId,
+        codigo: normalizeReportCode(document.codigo),
+        index,
+        message: insertError instanceof Error ? insertError.message : insertError,
+        element: {
+          tipo: element.tipo,
+          italica: element.italica,
+          text: element.text,
+          align: element.align,
+          maxLineas: element.maxLineas,
+        },
+      })
+      throw insertError
+    }
+  }
 }
 
 async function saveDocumentToSqlServer(document) {
@@ -458,7 +515,6 @@ async function saveDocumentToSqlServer(document) {
   await transaction.begin()
 
   try {
-    const includeItalic = await hasColumn(pool, 'dbo.Scan_ReporteDetalle', 'Italica').catch(() => false)
     const request = new sql.Request(transaction)
     request.input('Codigo', sql.NVarChar(50), normalized.codigo)
     request.input('Nombre', sql.NVarChar(100), normalized.nombre)
@@ -522,8 +578,7 @@ async function saveDocumentToSqlServer(document) {
       .input('IdReporte', sql.Int, reportId)
       .query('DELETE FROM dbo.Scan_ReporteDetalle WHERE IdReporte = @IdReporte')
 
-    const detailTable = buildDetailTable(normalized, reportId, includeItalic)
-    await new sql.Request(transaction).bulk(detailTable)
+    await insertDetailRows(transaction, normalized, reportId)
     log('Scan_ReporteDetalle saved', { reportId, rows: normalized.elementos.length })
 
     await transaction.commit()
@@ -564,7 +619,11 @@ async function saveDocumentToSqlServer(document) {
       verification,
     }
   } catch (error) {
-    await transaction.rollback()
+    try {
+      await transaction.rollback()
+    } catch (rollbackError) {
+      log('SQL rollback failed', rollbackError instanceof Error ? rollbackError.message : rollbackError)
+    }
     log('SQL save rolled back', error instanceof Error ? error.message : error)
     throw error
   } finally {
@@ -641,6 +700,16 @@ const server = http.createServer(async (req, res) => {
   }
 
   text(res, 404, 'Not found')
+})
+
+server.on('error', (error) => {
+  if (error && typeof error === 'object' && 'code' in error && error.code === 'EADDRINUSE') {
+    console.log(`SQL API already listening on http://127.0.0.1:${PORT}`)
+    setInterval(() => {}, 60_000)
+    return
+  }
+
+  throw error
 })
 
 server.listen(PORT, () => {

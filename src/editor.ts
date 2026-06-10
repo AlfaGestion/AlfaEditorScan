@@ -47,6 +47,7 @@ export interface EditorElement {
   fontStyle: 'normal' | 'italic'
   italica: boolean
   underline: boolean
+  tipoFuente: string
   fontFamily: string
   uppercase: boolean
   align: TextAlign
@@ -123,6 +124,79 @@ export const elementPalette: Array<{ tipo: ElementType; nombre: string; descripc
 ]
 
 export const STORAGE_KEY = 'alfa-editor-scan:document'
+export const logoLibrary = [
+  { id: 'alfa_logo', label: 'Logo Alfa', src: '/logos/alfa_logo.png' },
+  { id: 'alfa_new_logo_editable', label: 'Logo nuevo editable', src: '/logos/alfa_new_logo_editable.png' },
+  { id: 'icon', label: 'Icono', src: '/logos/icon.png' },
+  { id: 'adaptive_icon', label: 'Adaptive icon', src: '/logos/adaptive-icon.png' },
+  { id: 'favicon', label: 'Favicon', src: '/logos/favicon.png' },
+  { id: 'splash', label: 'Splash', src: '/logos/splash.png' },
+  { id: 'splash_dark', label: 'Splash Dark', src: '/logos/splashDark.png' },
+] as const
+
+export const fontSourceOptions = [
+  { value: 'Default', label: 'Default', fontFamily: 'Aptos, Segoe UI, Arial, sans-serif' },
+  { value: 'Arial', label: 'Arial', fontFamily: 'Arial, Helvetica, sans-serif' },
+  { value: 'Roboto', label: 'Roboto', fontFamily: 'Roboto, Arial, sans-serif' },
+  { value: 'Open Sans', label: 'Open Sans', fontFamily: '"Open Sans", Arial, sans-serif' },
+  { value: 'Montserrat', label: 'Montserrat', fontFamily: 'Montserrat, Arial, sans-serif' },
+  { value: 'Poppins', label: 'Poppins', fontFamily: 'Poppins, Arial, sans-serif' },
+  { value: 'Inter', label: 'Inter', fontFamily: 'Inter, Arial, sans-serif' },
+  { value: 'Helvetica', label: 'Helvetica', fontFamily: 'Helvetica, Arial, sans-serif' },
+  { value: 'Times New Roman', label: 'Times New Roman', fontFamily: '"Times New Roman", Times, serif' },
+  { value: 'Georgia', label: 'Georgia', fontFamily: 'Georgia, Times, serif' },
+  { value: 'Courier New', label: 'Courier New', fontFamily: '"Courier New", Courier, monospace' },
+  { value: 'Consolas', label: 'Consolas', fontFamily: 'Consolas, Monaco, monospace' },
+  { value: 'Monospace', label: 'Monospace', fontFamily: 'monospace' },
+  { value: 'Barcode / Código de barra', label: 'Barcode / Código de barra', fontFamily: '"Libre Barcode 128 Text", monospace' },
+] as const
+
+export type TipoFuente = (typeof fontSourceOptions)[number]['value']
+
+export function normalizeTipoFuente(value: unknown): TipoFuente {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (!normalized || normalized === 'default') return 'Default'
+  const matched = fontSourceOptions.find((option) => option.value.toLowerCase() === normalized)
+  if (matched) return matched.value
+  if (normalized.includes('barcode')) return 'Barcode / Código de barra'
+  if (normalized.includes('courier')) return 'Courier New'
+  if (normalized.includes('consolas')) return 'Consolas'
+  if (normalized.includes('times')) return 'Times New Roman'
+  if (normalized.includes('georgia')) return 'Georgia'
+  if (normalized.includes('monospace')) return 'Monospace'
+  if (normalized.includes('montserrat')) return 'Montserrat'
+  if (normalized.includes('poppins')) return 'Poppins'
+  if (normalized.includes('open sans') || normalized.includes('opensans')) return 'Open Sans'
+  if (normalized.includes('roboto')) return 'Roboto'
+  if (normalized.includes('helvetica')) return 'Helvetica'
+  if (normalized.includes('inter')) return 'Inter'
+  if (normalized.includes('arial')) return 'Arial'
+  return 'Default'
+}
+
+export function inferTipoFuente(fontFamily: unknown): TipoFuente {
+  const normalized = String(fontFamily ?? '').trim().toLowerCase()
+  if (!normalized) return 'Default'
+  if (normalized.includes('barcode')) return 'Barcode / Código de barra'
+  if (normalized.includes('courier')) return 'Courier New'
+  if (normalized.includes('consolas')) return 'Consolas'
+  if (normalized.includes('times new roman') || normalized.includes('times')) return 'Times New Roman'
+  if (normalized.includes('georgia')) return 'Georgia'
+  if (normalized.includes('monospace')) return 'Monospace'
+  if (normalized.includes('montserrat')) return 'Montserrat'
+  if (normalized.includes('poppins')) return 'Poppins'
+  if (normalized.includes('open sans')) return 'Open Sans'
+  if (normalized.includes('roboto')) return 'Roboto'
+  if (normalized.includes('helvetica')) return 'Helvetica'
+  if (normalized.includes('inter')) return 'Inter'
+  if (normalized.includes('arial')) return 'Arial'
+  return 'Default'
+}
+
+export function tipoFuenteToFontFamily(value: unknown): string {
+  const normalized = normalizeTipoFuente(value)
+  return fontSourceOptions.find((option) => option.value === normalized)?.fontFamily ?? fontSourceOptions[0].fontFamily
+}
 
 const defaultElementStyles = {
   color: '#111827',
@@ -131,7 +205,8 @@ const defaultElementStyles = {
   fontStyle: 'normal' as const,
   italica: false,
   underline: false,
-  fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
+  tipoFuente: 'Default' as TipoFuente,
+  fontFamily: tipoFuenteToFontFamily('Default'),
   uppercase: false,
   align: 'left' as TextAlign,
   visible: true,
@@ -202,13 +277,13 @@ function baseElements(): EditorElement[] {
       align: 'center',
       color: '#0f172a',
       text: 'LOGO',
-      imageUrl: '',
       lineHeight: 1,
       fontStyle: 'normal',
       italica: false,
       underline: false,
       uppercase: false,
       fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
+      imageUrl: logoLibrary[0].src,
     },
     {
       id: uid(),
@@ -426,7 +501,8 @@ function createElementDefaults(tipo: ElementType, index: number): EditorElement 
     italica: false,
     underline: false,
     uppercase: false,
-    fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
+    tipoFuente: 'Default',
+    fontFamily: tipoFuenteToFontFamily('Default'),
   }
 
   switch (tipo) {
@@ -470,6 +546,7 @@ function createElementDefaults(tipo: ElementType, index: number): EditorElement 
         fontWeight: 'bold',
         align: 'center',
         text: 'LOGO',
+        imageUrl: logoLibrary[0].src,
         color: '#0f172a',
         fontStyle: 'normal',
         italica: false,
@@ -745,10 +822,8 @@ function normalizeElement(value: unknown, index: number): EditorElement {
     fontStyle: item.fontStyle === 'italic' ? 'italic' : 'normal',
     italica: item.italica === true || item.fontStyle === 'italic',
     underline: item.underline === true,
-    fontFamily:
-      typeof item.fontFamily === 'string' && item.fontFamily.trim()
-        ? item.fontFamily
-        : 'Aptos, Segoe UI, Arial, sans-serif',
+    tipoFuente: normalizeTipoFuente(item.tipoFuente ?? item.fontFamily),
+    fontFamily: tipoFuenteToFontFamily(item.tipoFuente ?? item.fontFamily),
     align: item.align === 'center' || item.align === 'right' ? item.align : 'left',
     visible: item.visible !== false,
     color: typeof item.color === 'string' ? item.color : '#111827',
@@ -789,8 +864,9 @@ export function buildSqlScript(document: LabelDocument): string {
     .map((element, index) => {
       const detalle = editorElementToSqlDetalle(element, index + 1)
       const textoFijoLiteral = detalle.TextoFijo === null ? 'NULL' : `N'${escapeSqlLiteral(detalle.TextoFijo)}'`
+      const tipoFuenteLiteral = `N'${escapeSqlLiteral(detalle.TipoFuente || 'Default')}'`
 
-      return `  (@ReporteId, N'${detalle.TipoElemento}', N'${escapeSqlLiteral(detalle.Campo)}', ${textoFijoLiteral}, ${detalle.X}, ${detalle.Y}, ${detalle.Ancho}, ${detalle.Alto}, ${detalle.TamanoFuente}, ${
+      return `  (@ReporteId, N'${detalle.TipoElemento}', N'${escapeSqlLiteral(detalle.Campo)}', ${textoFijoLiteral}, ${tipoFuenteLiteral}, ${detalle.X}, ${detalle.Y}, ${detalle.Ancho}, ${detalle.Alto}, ${detalle.TamanoFuente}, ${
         detalle.Negrita ? 1 : 0
       }, ${detalle.Italica ? 1 : 0}, N'${escapeSqlLiteral(detalle.Alineacion)}', ${detalle.Visible ? 1 : 0}, ${detalle.Orden}, ${detalle.MaxLineas}, ${
         detalle.Mayuscula ? 1 : 0
@@ -857,6 +933,7 @@ INSERT INTO dbo.Scan_ReporteDetalle (
   TipoElemento,
   Campo,
   TextoFijo,
+  TipoFuente,
   X,
   Y,
   Ancho,
@@ -885,6 +962,7 @@ export interface SqlDetalle {
   TipoElemento: SqlTipoElemento
   Campo: 'Empresa' | 'Descripcion' | 'Precio' | 'CodigoArticulo' | 'CodigoBarra' | 'Stock' | 'Fecha' | 'TextoFijo' | 'Logo'
   TextoFijo: string | null
+  TipoFuente: string
   X: number
   Y: number
   Ancho: number
@@ -903,6 +981,7 @@ export interface SqlVerificationDetail {
   tipoElemento: SqlTipoElemento
   campo: SqlDetalle['Campo']
   textoFijo: string | null
+  tipoFuente: string
   x: number
   y: number
   ancho: number
@@ -990,6 +1069,10 @@ function getSqlTextoFijo(element: EditorElement): string | null {
   return null
 }
 
+function getSqlTipoFuente(element: EditorElement): string {
+  return normalizeTipoFuente(element.tipoFuente ?? element.fontFamily)
+}
+
 function getSqlDisplayValue(element: EditorElement, sampleData: SampleData): string {
   switch (element.tipo) {
     case 'empresa':
@@ -1020,6 +1103,7 @@ export function editorElementToSqlDetalle(element: EditorElement, order: number)
     TipoElemento: getSqlTipoElemento(element.tipo),
     Campo: getSqlCampo(element.tipo),
     TextoFijo: getSqlTextoFijo(element),
+    TipoFuente: getSqlTipoFuente(element),
     X: round(element.x),
     Y: round(element.y),
     Ancho: round(element.width),
@@ -1036,6 +1120,11 @@ export function editorElementToSqlDetalle(element: EditorElement, order: number)
 }
 
 export function sqlDetalleToEditorElement(detail: Partial<SqlDetalle> & { id?: string }, index = 0): EditorElement {
+  const tipoFuente = normalizeTipoFuente(
+    (detail as { TipoFuente?: unknown }).TipoFuente ??
+      (detail as { tipoFuente?: unknown }).tipoFuente ??
+      (detail as { fontFamily?: unknown }).fontFamily,
+  )
   const tipo = (() => {
     const tipoElemento = String(detail.TipoElemento ?? '').trim().toLowerCase()
     const campo = String(detail.Campo ?? '').trim().toLowerCase()
@@ -1066,7 +1155,8 @@ export function sqlDetalleToEditorElement(detail: Partial<SqlDetalle> & { id?: s
     fontStyle: detail.Italica ? 'italic' : 'normal',
     italica: Boolean(detail.Italica),
     underline: false,
-    fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
+    tipoFuente: tipoFuente,
+    fontFamily: tipoFuenteToFontFamily(tipoFuente),
     uppercase: Boolean(detail.Mayuscula),
     align: detail.Alineacion === 'center' || detail.Alineacion === 'right' ? detail.Alineacion : 'left',
     visible: detail.Visible !== false,
@@ -1109,6 +1199,7 @@ export function buildSqlVerificationSnapshot(document: LabelDocument): SqlVerifi
       tipoElemento: item.sqlDetalle.TipoElemento,
       campo: item.sqlDetalle.Campo,
       textoFijo: item.sqlDetalle.TextoFijo,
+      tipoFuente: item.sqlDetalle.TipoFuente,
       x: item.sqlDetalle.X,
       y: item.sqlDetalle.Y,
       ancho: item.sqlDetalle.Ancho,
@@ -1226,8 +1317,9 @@ export function buildAlfaScanSqlScript(document: LabelDocument): string {
       const detalle = editorElementToSqlDetalle(item, index + 1)
       const campoLiteral = `N'${escapeSqlLiteral(detalle.Campo)}'`
       const textoFijoLiteral = detalle.TextoFijo === null ? 'NULL' : `N'${escapeSqlLiteral(detalle.TextoFijo)}'`
+      const tipoFuenteLiteral = `N'${escapeSqlLiteral(detalle.TipoFuente || 'Default')}'`
 
-      return `  (@ReporteId, N'${detalle.TipoElemento}', ${campoLiteral}, ${textoFijoLiteral}, ${detalle.X}, ${detalle.Y}, ${detalle.Ancho}, ${detalle.Alto}, ${detalle.TamanoFuente}, ${
+      return `  (@ReporteId, N'${detalle.TipoElemento}', ${campoLiteral}, ${textoFijoLiteral}, ${tipoFuenteLiteral}, ${detalle.X}, ${detalle.Y}, ${detalle.Ancho}, ${detalle.Alto}, ${detalle.TamanoFuente}, ${
         detalle.Negrita ? 1 : 0
       }, ${detalle.Italica ? 1 : 0}, N'${escapeSqlLiteral(detalle.Alineacion)}', ${detalle.Visible ? 1 : 0}, ${detalle.Orden}, ${detalle.MaxLineas}, ${
         detalle.Mayuscula ? 1 : 0
@@ -1294,6 +1386,7 @@ INSERT INTO dbo.Scan_ReporteDetalle (
   TipoElemento,
   Campo,
   TextoFijo,
+  TipoFuente,
   X,
   Y,
   Ancho,
