@@ -1073,31 +1073,6 @@ function getSqlTipoFuente(element: EditorElement): string {
   return normalizeTipoFuente(element.tipoFuente ?? element.fontFamily)
 }
 
-function getSqlDisplayValue(element: EditorElement, sampleData: SampleData): string {
-  switch (element.tipo) {
-    case 'empresa':
-      return sampleData.companyName
-    case 'descripcion':
-      return sampleData.description
-    case 'precio':
-      return sampleData.price
-    case 'codigoArticulo':
-      return sampleData.internalCode
-    case 'codigoBarra':
-      return sampleData.barcode
-    case 'stock':
-      return sampleData.stock
-    case 'fecha':
-      return sampleData.date
-    case 'textoFijo':
-      return replaceSqlPlaceholders(element.text || '', sampleData)
-    case 'linea':
-      return '------------'
-    case 'logo':
-      return element.text || 'Logo'
-  }
-}
-
 export function editorElementToSqlDetalle(element: EditorElement, order: number): SqlDetalle {
   return {
     TipoElemento: getSqlTipoElemento(element.tipo),
@@ -1182,7 +1157,7 @@ export function buildAlfaScanLayout(document: LabelDocument, sampleData: SampleD
     items: document.elementos.map((element, index) => ({
       ...element,
       sqlDetalle: editorElementToSqlDetalle(element, index + 1),
-      displayValue: getSqlDisplayValue(element, sampleData),
+      displayValue: getElementDisplayValue(element, sampleData),
     })),
   }
 }
