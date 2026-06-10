@@ -9,6 +9,7 @@ export type ElementType =
   | 'precio'
   | 'codigoArticulo'
   | 'codigoBarra'
+  | 'codigoBarraTexto'
   | 'stock'
   | 'fecha'
   | 'textoFijo'
@@ -696,6 +697,8 @@ export function getElementName(tipo: ElementType): string {
       return 'Código artículo'
     case 'codigoBarra':
       return 'Código barra'
+    case 'codigoBarraTexto':
+      return 'Código barra texto'
     case 'stock':
       return 'Stock'
     case 'fecha':
@@ -725,6 +728,9 @@ export function getElementDisplayValue(element: EditorElement, data: SampleData)
       value = data.internalCode
       break
     case 'codigoBarra':
+      value = data.barcode
+      break
+    case 'codigoBarraTexto':
       value = data.barcode
       break
     case 'stock':
@@ -842,6 +848,7 @@ function isElementType(value: unknown): value is ElementType {
     value === 'precio' ||
     value === 'codigoArticulo' ||
     value === 'codigoBarra' ||
+    value === 'codigoBarraTexto' ||
     value === 'stock' ||
     value === 'fecha' ||
     value === 'textoFijo' ||
@@ -1048,6 +1055,8 @@ function getSqlCampo(tipo: ElementType): SqlDetalle['Campo'] {
       return 'CodigoArticulo'
     case 'codigoBarra':
       return 'CodigoBarra'
+    case 'codigoBarraTexto':
+      return 'CodigoBarra'
     case 'stock':
       return 'Stock'
     case 'fecha':
@@ -1070,6 +1079,7 @@ function getSqlTextoFijo(element: EditorElement): string | null {
 }
 
 function getSqlTipoFuente(element: EditorElement): string {
+  if (element.tipo === 'codigoBarraTexto') return 'Arial'
   return normalizeTipoFuente(element.tipoFuente ?? element.fontFamily)
 }
 
@@ -1107,7 +1117,8 @@ export function sqlDetalleToEditorElement(detail: Partial<SqlDetalle> & { id?: s
     if (tipoElemento === 'texto' && campo === 'descripcion') return 'descripcion'
     if (tipoElemento === 'precio') return 'precio'
     if (campo === 'codigoarticulo') return 'codigoArticulo'
-    if (tipoElemento === 'codigobarra' || campo === 'codigobarra') return 'codigoBarra'
+    if (tipoElemento === 'codigobarra') return 'codigoBarra'
+    if (tipoElemento === 'texto' && campo === 'codigobarra') return 'codigoBarraTexto'
     if (campo === 'stock') return 'stock'
     if (campo === 'fecha') return 'fecha'
     if (tipoElemento === 'linea') return 'linea'
@@ -1141,6 +1152,8 @@ export function sqlDetalleToEditorElement(detail: Partial<SqlDetalle> & { id?: s
         ? '------------'
         : tipo === 'textoFijo'
           ? String(detail.TextoFijo ?? '')
+          : tipo === 'codigoBarraTexto'
+            ? String(detail.TextoFijo ?? '')
           : '',
     imageUrl: '',
     lineHeight: 1.1,

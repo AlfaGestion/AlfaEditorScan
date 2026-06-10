@@ -199,6 +199,7 @@ function isElementType(value) {
     value === 'precio' ||
     value === 'codigoArticulo' ||
     value === 'codigoBarra' ||
+    value === 'codigoBarraTexto' ||
     value === 'stock' ||
     value === 'fecha' ||
     value === 'textoFijo' ||
@@ -212,6 +213,7 @@ function mapTypeToSql(tipo) {
   if (tipo === 'descripcion') return 'texto'
   if (tipo === 'precio') return 'precio'
   if (tipo === 'codigoBarra') return 'codigobarra'
+  if (tipo === 'codigoBarraTexto') return 'texto'
   if (tipo === 'linea') return 'linea'
   if (tipo === 'textoFijo') return 'texto'
   return 'texto'
@@ -228,6 +230,8 @@ function mapFieldToSql(tipo) {
     case 'codigoArticulo':
       return 'CodigoArticulo'
     case 'codigoBarra':
+      return 'CodigoBarra'
+    case 'codigoBarraTexto':
       return 'CodigoBarra'
     case 'stock':
       return 'Stock'
