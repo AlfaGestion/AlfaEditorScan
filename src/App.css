@@ -1,4 +1,4 @@
-.app-shell {
+﻿.app-shell {
   --app-bg-1: rgba(45, 212, 191, 0.16);
   --app-bg-2: rgba(59, 130, 246, 0.16);
   --app-bg-base: #f5f7fb;
@@ -410,9 +410,6 @@ input[type='file'] {
   font-weight: 800;
 }
 
-.icon-button .tool-icon {
-  font-size: 0.9rem;
-}
 
 .icon-button span:last-child {
   display: none;
@@ -661,15 +658,6 @@ input[type='file'] {
   transform: translateY(-1px);
 }
 
-.tool-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 18px;
-  font-size: 0.98rem;
-  font-weight: 800;
-  color: var(--accent);
-}
 
 .tool-button span:last-child {
   font-size: 0.78rem;
@@ -687,10 +675,6 @@ input[type='file'] {
   border-radius: 10px;
 }
 
-.icon-button .tool-icon {
-  min-height: 0;
-  font-size: 0.9rem;
-}
 
 .icon-button span:last-child {
   display: none;
@@ -701,9 +685,6 @@ input[type='file'] {
   background: linear-gradient(180deg, #fff5f5 0%, #fff 100%);
 }
 
-.danger-tool .tool-icon {
-  color: #dc2626;
-}
 
 .app-shell[data-theme='dark'] .pill-error {
   background: rgba(127, 29, 29, 0.45);
@@ -1165,52 +1146,10 @@ input[type='file'] {
   }
 }
 
-.layout-log-card {
-  overflow: hidden;
-}
 
-.layout-log {
-  margin: 0;
-  padding: 0.85rem 1rem 1rem;
-  max-height: 260px;
-  overflow: auto;
-  border-top: 1px solid var(--border);
-  background:
-    linear-gradient(180deg, rgba(16, 185, 129, 0.06), transparent 40%),
-    var(--surface-elevated);
-  color: var(--muted);
-  font-family: 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
-  font-size: 0.82rem;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
 
-.save-debug-panel {
-  margin: 0 1.5rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
-  overflow: hidden;
-}
 
-.save-debug-panel .card-head {
-  margin: 0;
-  padding: 1rem 1.1rem;
-}
 
-.save-debug-log {
-  margin: 0;
-  padding: 0.9rem 1.1rem 1.1rem;
-  max-height: 240px;
-  overflow: auto;
-  border-top: 1px solid var(--border);
-  background: var(--surface-elevated);
-  color: var(--muted);
-  font-family: 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
-  font-size: 0.8rem;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
+
+
+

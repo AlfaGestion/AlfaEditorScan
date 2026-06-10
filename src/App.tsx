@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { Rnd } from 'react-rnd'
+import { AlignCenter, AlignLeft, AlignRight, Bold, CircleHelp, Copy, Eye, EyeOff, Italic, Plus, Trash2, Type } from 'lucide-react'
 import './App.css'
 import heroLogo from './assets/hero.png'
 import {
@@ -262,7 +263,6 @@ function App() {
   const [previewZoom, setPreviewZoom] = useState(1)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [saveMessage, setSaveMessage] = useState('')
-  const [saveDebugLog, setSaveDebugLog] = useState<string[]>([])
   const [showAdvancedInspector, setShowAdvancedInspector] = useState(false)
   const [showAddElementMenu, setShowAddElementMenu] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('editor')
@@ -293,14 +293,6 @@ function App() {
   const themeLabel = themeMode === 'dark' ? 'Modo oscuro' : 'Modo claro'
   const currentZoom = viewMode === 'editor' ? editorZoom : previewZoom
   const zoomLabel = `${Math.round(currentZoom * 100)}%`
-  const editorLayoutLog = useMemo(
-    () => [
-      `[EDITOR_LAYOUT] items ${alfaScanLayout.items.length}`,
-      ...alfaScanLayout.items.map((item) => `[EDITOR_LAYOUT] ${item.campo} visible ${item.visible}`),
-    ],
-    [alfaScanLayout],
-  )
-
   useEffect(() => {
     localStorage.setItem(
       STORAGE_KEY,
@@ -360,7 +352,6 @@ function App() {
   function pushSaveDebug(label: string, detail: unknown) {
     const line = formatSaveDebugLine(label, detail)
     console.error(line, detail)
-    setSaveDebugLog((current) => [line, ...current].slice(0, 6))
   }
 
   function updateDocument(next: LabelDocument) {
@@ -533,7 +524,6 @@ function App() {
   async function saveSql() {
     setSaveStatus('saving')
     setSaveMessage('Guardando...')
-    setSaveDebugLog([])
     try {
       const saveResponse = await fetch('/api/sql/save', {
         method: 'POST',
@@ -807,7 +797,8 @@ function App() {
             {viewMode === 'editor' ? 'Previsualizar' : 'Volver al editor'}
           </button>
           <button className="ghost" type="button" onClick={() => setShowAdvancedInspector((current) => !current)}>
-            {showAdvancedInspector ? 'Cerrar opciones' : 'Más opciones'}
+            <CircleHelp size={16} strokeWidth={2.3} />
+            <span>{showAdvancedInspector ? 'Cerrar opciones' : 'Más opciones'}</span>
           </button>
           <button className="ghost" type="button" onClick={toggleTheme}>
             {themeLabel}
@@ -820,16 +811,6 @@ function App() {
           </span>
         </div>
       </header>
-
-      {saveDebugLog.length > 0 ? (
-        <section className="save-debug-panel">
-          <div className="card-head">
-            <h2>Diagnóstico de guardado</h2>
-            <span className="pill">{saveDebugLog.length}</span>
-          </div>
-          <pre className="save-debug-log">{saveDebugLog.join('\n')}</pre>
-        </section>
-      ) : null}
 
       {viewMode === 'editor' ? (
         <main className="workspace">
@@ -883,35 +864,6 @@ function App() {
               </div>
             </div>
               <p className="helper-text">1 mm = 4 px. El canvas usa el mismo modelo visual que la vista previa.</p>
-          </section>
-
-          <section className="card">
-            <div className="card-head">
-              <h2>Elementos</h2>
-              <span className="pill">{documentState.elementos.length}</span>
-            </div>
-            <div className="palette">
-              {elementPalette.map((item) => (
-                <button
-                  key={item.tipo}
-                  className="palette-item"
-                  type="button"
-                  onClick={() => handleAddElement(item.tipo)}
-                >
-                  <strong>{item.nombre}</strong>
-                  <span>{item.descripcion}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-          <section className="card layout-log-card">
-            <div className="card-head">
-              <h2>Layout SQL</h2>
-              <span className="pill">{alfaScanLayout.items.length}</span>
-            </div>
-            <pre className="layout-log" aria-label="Log de layout">
-              {editorLayoutLog.join('\n')}
-            </pre>
           </section>
           </aside>
 
@@ -981,7 +933,7 @@ function App() {
                   title="Negrita"
                   aria-label="Negrita"
                 >
-                  B
+                  <Bold size={16} strokeWidth={2.3} />
                 </button>
                 <button
                   type="button"
@@ -990,7 +942,7 @@ function App() {
                   title="Itálica"
                   aria-label="Itálica"
                 >
-                  I
+                  <Italic size={16} strokeWidth={2.3} />
                 </button>
                 <button
                   type="button"
@@ -999,7 +951,7 @@ function App() {
                   title="Mayúsculas"
                   aria-label="Mayúsculas"
                 >
-                  AA
+                  <Type size={16} strokeWidth={2.3} />
                 </button>
               </div>
               <div className="toolbar-segment" role="group" aria-label="Alineación">
@@ -1010,7 +962,7 @@ function App() {
                   title="Alinear a la izquierda"
                   aria-label="Alinear a la izquierda"
                 >
-                  ?
+                  <AlignLeft size={16} strokeWidth={2.3} />
                 </button>
                 <button
                   type="button"
@@ -1019,7 +971,7 @@ function App() {
                   title="Centrar"
                   aria-label="Centrar"
                 >
-                  =
+                  <AlignCenter size={16} strokeWidth={2.3} />
                 </button>
                 <button
                   type="button"
@@ -1028,7 +980,7 @@ function App() {
                   title="Alinear a la derecha"
                   aria-label="Alinear a la derecha"
                 >
-                  ?
+                  <AlignRight size={16} strokeWidth={2.3} />
                 </button>
               </div>
               <div className="add-element-popover" ref={addElementMenuRef}>
@@ -1039,7 +991,7 @@ function App() {
                   aria-expanded={showAddElementMenu}
                   aria-haspopup="menu"
                 >
-                  <span className="tool-icon">+</span>
+                  <Plus size={16} strokeWidth={2.5} />
                   <span>Agregar elemento</span>
                 </button>
                 {showAddElementMenu ? (
@@ -1065,7 +1017,7 @@ function App() {
                 title={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
                 aria-label={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
               >
-                {selectedElement.visible ? '??' : '??'}
+                {selectedElement.visible ? <Eye size={16} strokeWidth={2.3} /> : <EyeOff size={16} strokeWidth={2.3} />}
               </button>
               <button
                 type="button"
@@ -1074,7 +1026,7 @@ function App() {
                 title="Duplicar"
                 aria-label="Duplicar"
               >
-                ?
+                <Copy size={16} strokeWidth={2.3} />
               </button>
               <button
                 type="button"
@@ -1083,7 +1035,7 @@ function App() {
                 title="Eliminar"
                 aria-label="Eliminar"
               >
-                ??
+                <Trash2 size={16} strokeWidth={2.3} />
               </button>
             </div>
           ) : null}
@@ -1272,6 +1224,9 @@ function App() {
 }
 
 export default App
+
+
+
 
 
 
