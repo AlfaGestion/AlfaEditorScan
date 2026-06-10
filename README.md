@@ -120,6 +120,17 @@ Eso levanta:
 
 El botón `Guardar` usa ese API local para conectar a SQL Server.
 
+## Despliegue portable
+
+Para llevar la app a otra PC sin pasar el `src`:
+
+1. En esta máquina, ejecuta `make-release.bat`.
+2. Copia la carpeta `release/AlfaEditorScan-Portable` a la otra PC.
+3. Completa `".env.production"` con los datos de SQL Server.
+4. Ejecuta `install-production.bat`.
+
+Ese flujo levanta el build estático desde `dist` y el API local en modo producción.
+
 ## Roadmap
 
 - Fase 1: editor local y guardado en SQL.

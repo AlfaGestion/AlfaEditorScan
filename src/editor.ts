@@ -148,7 +148,7 @@ export const fontSourceOptions = [
   { value: 'Courier New', label: 'Courier New', fontFamily: '"Courier New", Courier, monospace' },
   { value: 'Consolas', label: 'Consolas', fontFamily: 'Consolas, Monaco, monospace' },
   { value: 'Monospace', label: 'Monospace', fontFamily: 'monospace' },
-  { value: 'Barcode / Código de barra', label: 'Barcode / Código de barra', fontFamily: '"Libre Barcode 128 Text", monospace' },
+  { value: 'Barcode / Código de barra', label: 'Barcode / Código de barra', fontFamily: '"Libre Barcode 128", monospace' },
 ] as const
 
 export type TipoFuente = (typeof fontSourceOptions)[number]['value']

@@ -1,4 +1,5 @@
 import http from 'node:http'
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
@@ -7,7 +8,12 @@ import sql from 'mssql'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') })
+const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production'
+const envFiles = isProduction ? ['.env.production', '.env'] : ['.env.local', '.env']
+
+for (const envFile of envFiles) {
+  dotenv.config({ path: path.resolve(__dirname, '..', envFile) })
+}
 dotenv.config()
 
 const PORT = Number(process.env.SQL_API_PORT || 3001)
@@ -19,6 +25,21 @@ const SQL_PORT = Number(process.env.SQL_PORT || 1433)
 const SQL_ENCRYPT = String(process.env.SQL_ENCRYPT || 'false').toLowerCase() === 'true'
 const SQL_TRUST_SERVER_CERTIFICATE =
   String(process.env.SQL_TRUST_SERVER_CERTIFICATE || 'true').toLowerCase() === 'true'
+const DIST_DIR = path.resolve(__dirname, '..', 'dist')
+const INDEX_FILE = path.join(DIST_DIR, 'index.html')
+const MIME_TYPES = new Map([
+  ['.html', 'text/html; charset=utf-8'],
+  ['.js', 'application/javascript; charset=utf-8'],
+  ['.css', 'text/css; charset=utf-8'],
+  ['.json', 'application/json; charset=utf-8'],
+  ['.svg', 'image/svg+xml'],
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.ico', 'image/x-icon'],
+  ['.woff', 'font/woff'],
+  ['.woff2', 'font/woff2'],
+])
 
 function log(message, detail) {
   const timestamp = new Date().toISOString()
@@ -46,6 +67,66 @@ function text(res, statusCode, payload) {
     'access-control-allow-headers': 'content-type',
   })
   res.end(payload)
+}
+
+function getContentType(filePath) {
+  return MIME_TYPES.get(path.extname(filePath).toLowerCase()) || 'application/octet-stream'
+}
+
+function resolveStaticPath(requestPath) {
+  const normalizedRequestPath = requestPath === '/' ? '/index.html' : requestPath
+  const candidatePath = path.normalize(path.join(DIST_DIR, normalizedRequestPath))
+  if (!candidatePath.startsWith(DIST_DIR)) return null
+  return candidatePath
+}
+
+async function serveProductionApp(req, res, pathname) {
+  const filePath = resolveStaticPath(pathname)
+  if (!filePath) {
+    text(res, 400, 'Ruta inválida.')
+    return
+  }
+
+  try {
+    const stat = await fs.stat(filePath).catch(() => null)
+    const finalPath = stat?.isDirectory() ? path.join(filePath, 'index.html') : filePath
+    const finalStat = await fs.stat(finalPath).catch(() => null)
+
+    if (!finalStat?.isFile()) {
+      const fallback = await fs.readFile(INDEX_FILE)
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'access-control-allow-origin': '*',
+      })
+      res.end(fallback)
+      return
+    }
+
+    const payload = await fs.readFile(finalPath)
+    res.writeHead(200, {
+      'content-type': getContentType(finalPath),
+      'cache-control': finalPath.endsWith('index.html') ? 'no-store' : 'public, max-age=31536000, immutable',
+      'access-control-allow-origin': '*',
+    })
+    res.end(payload)
+  } catch (error) {
+    log('Static asset failed', error instanceof Error ? error.message : error)
+    if (pathname === '/' || !path.extname(pathname)) {
+      try {
+        const fallback = await fs.readFile(INDEX_FILE)
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'access-control-allow-origin': '*',
+        })
+        res.end(fallback)
+        return
+      } catch (fallbackError) {
+        log('Fallback index failed', fallbackError instanceof Error ? fallbackError.message : fallbackError)
+      }
+    }
+
+    text(res, 404, 'Archivo no encontrado.')
+  }
 }
 
 function errorPayload(error) {
@@ -696,6 +777,11 @@ const server = http.createServer(async (req, res) => {
         ...errorPayload(error),
       })
     }
+    return
+  }
+
+  if (req.method === 'GET') {
+    await serveProductionApp(req, res, url.pathname)
     return
   }
 

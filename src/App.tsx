@@ -12,13 +12,13 @@ import {
   elementPalette,
   getCanvasSize,
   getElementById,
-  getElementName,
   getPaperFormat,
   fontSourceOptions,
   inferTipoFuente,
   logoLibrary,
   paperFormats,
   removeElement,
+  sqlDetalleToEditorElement,
   STORAGE_KEY,
   toggleVisibility,
   tipoFuenteToFontFamily,
@@ -132,6 +132,44 @@ function readStoredTheme(): ThemeMode {
   const raw = localStorage.getItem(THEME_STORAGE_KEY)
   if (raw === 'dark' || raw === 'light') return raw
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function reportToDocument(report: SqlVerificationSnapshot, fallbackFormat: FormatCode): LabelDocument {
+  const fallbackDocument = createDefaultDocument(fallbackFormat)
+  const elementos =
+    Array.isArray(report.detalles) && report.detalles.length > 0
+      ? report.detalles.map((detail, index) =>
+          sqlDetalleToEditorElement(
+            {
+              TipoElemento: detail.tipoElemento,
+              Campo: detail.campo ?? undefined,
+              TextoFijo: detail.textoFijo,
+              TipoFuente: detail.tipoFuente,
+              X: detail.x,
+              Y: detail.y,
+              Ancho: detail.ancho,
+              Alto: detail.alto,
+              TamanoFuente: detail.tamanoFuente,
+              Negrita: detail.negrita,
+              Italica: detail.italica,
+              Alineacion: detail.alineacion,
+              Visible: detail.visible,
+              Orden: detail.orden,
+              MaxLineas: detail.maxLineas,
+              Mayuscula: detail.mayuscula,
+            },
+            index,
+          ),
+        )
+      : fallbackDocument.elementos
+
+  return {
+    codigo: normalizeFormatCode(report.codigo),
+    nombre: typeof report.nombre === 'string' && report.nombre.trim() ? report.nombre : fallbackDocument.nombre,
+    anchoPapelMm: typeof report.anchoPapelMm === 'number' ? Number(report.anchoPapelMm) : fallbackDocument.anchoPapelMm,
+    altoPapelMm: typeof report.altoMm === 'number' ? Number(report.altoMm) : fallbackDocument.altoPapelMm,
+    elementos,
+  }
 }
 
 function normalizeStoredDocument(document: LabelDocument): LabelDocument {
@@ -274,6 +312,7 @@ function App() {
   const [previewQuery, setPreviewQuery] = useState('')
   const [selectedPreviewId, setSelectedPreviewId] = useState(previewCatalog[0]?.id ?? '')
   const addElementMenuRef = useRef<HTMLDivElement | null>(null)
+  const formatLoadRequestRef = useRef(0)
 
   const canvas = getCanvasSize(documentState)
   const effectiveSelectedId = documentState.elementos.some((element) => element.id === selectedId)
@@ -380,23 +419,67 @@ function App() {
     updateDocument(updateElement(documentState, selectedElement.id, patch))
   }
 
-  function handleFormatChange(codigo: FormatCode) {
+  async function handleFormatChange(codigo: FormatCode) {
     const nextFormat = normalizeFormatCode(codigo)
     if (nextFormat === activeFormat) return
 
-    const nextDocument = documentsByFormat[nextFormat] ?? createDefaultDocument(nextFormat)
-    setDocumentsByFormat((current) => ({
-      ...current,
-      [activeFormat]: documentState,
-      [nextFormat]: current[nextFormat] ?? nextDocument,
-    }))
-    setSelectedIdsByFormat((current) => ({
-      ...current,
-      [activeFormat]: selectedId,
-    }))
-    setActiveFormat(nextFormat)
-    setDocumentState(nextDocument)
-    setSelectedId(selectedIdsByFormat[nextFormat] ?? nextDocument.elementos[0]?.id ?? '')
+    const requestId = formatLoadRequestRef.current + 1
+    formatLoadRequestRef.current = requestId
+
+    try {
+      const response = await fetch(`/api/sql/report?codigo=${encodeURIComponent(nextFormat)}`)
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+        report?: SqlVerificationSnapshot
+      }
+
+      if (formatLoadRequestRef.current !== requestId) return
+
+      const loadedDocument =
+        response.ok && payload.ok !== false && payload.report ? reportToDocument(payload.report, nextFormat) : createDefaultDocument(nextFormat)
+
+      if (!response.ok && response.status !== 404) {
+        throw new Error(payload.error || 'No se pudo leer la plantilla desde SQL.')
+      }
+
+      setDocumentsByFormat((current) => ({
+        ...current,
+        [activeFormat]: documentState,
+        [nextFormat]: loadedDocument,
+      }))
+      setSelectedIdsByFormat((current) => ({
+        ...current,
+        [activeFormat]: selectedId,
+        [nextFormat]: loadedDocument.elementos[0]?.id ?? '',
+      }))
+      setActiveFormat(nextFormat)
+      setDocumentState(loadedDocument)
+      setSelectedId(loadedDocument.elementos[0]?.id ?? '')
+      if (!response.ok && response.status !== 404) {
+        notify('error', 'No se pudo leer SQL; se cargó una plantilla vacía.')
+      }
+    } catch (error) {
+      if (formatLoadRequestRef.current !== requestId) return
+
+      const fallbackDocument = createDefaultDocument(nextFormat)
+      setDocumentsByFormat((current) => ({
+        ...current,
+        [activeFormat]: documentState,
+        [nextFormat]: fallbackDocument,
+      }))
+      setSelectedIdsByFormat((current) => ({
+        ...current,
+        [activeFormat]: selectedId,
+        [nextFormat]: fallbackDocument.elementos[0]?.id ?? '',
+      }))
+      setActiveFormat(nextFormat)
+      setDocumentState(fallbackDocument)
+      setSelectedId(fallbackDocument.elementos[0]?.id ?? '')
+
+      const message = error instanceof Error ? error.message : 'No se pudo leer la plantilla desde SQL.'
+      notify('error', message)
+    }
   }
 
   function handleCustomFormatUpdate(nextWidth: number, nextHeight: number) {
@@ -720,7 +803,7 @@ function App() {
     const isBarcodeFont = element.tipoFuente === 'Barcode / Código de barra'
     const barcodeValueStyle = isBarcodeFont
       ? {
-          fontFamily: '"Libre Barcode 128 Text", monospace',
+          fontFamily: '"Libre Barcode 128", monospace',
           fontWeight: 400,
           fontStyle: 'normal' as const,
           lineHeight: 1,
@@ -751,23 +834,20 @@ function App() {
             {element.imageUrl ? <img src={element.imageUrl} alt={element.nombre} /> : <span>{element.text || 'LOGO'}</span>}
           </div>
         ) : (
-          <>
-            <span className="element-label">{getElementName(element.tipo)}</span>
-            <span
-              className="element-value"
-              style={{
-                display: '-webkit-box',
-                WebkitLineClamp: element.maxLineas,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-                whiteSpace: 'normal',
-                wordBreak: 'break-word',
-                ...(element.tipo === 'codigoBarra' ? barcodeValueStyle : {}),
-              }}
-            >
-              {element.displayValue}
-            </span>
-          </>
+          <span
+            className="element-value"
+            style={{
+              display: '-webkit-box',
+              WebkitLineClamp: element.maxLineas,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              whiteSpace: 'normal',
+              wordBreak: 'break-word',
+              ...(element.tipo === 'codigoBarra' ? barcodeValueStyle : {}),
+            }}
+          >
+            {element.displayValue}
+          </span>
         )}
       </div>
     )
