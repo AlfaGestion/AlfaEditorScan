@@ -459,6 +459,8 @@ async function saveDocumentToSqlServer(document) {
       elementos: normalized.elementos.length,
     })
 
+    const report = await loadReportSnapshotByCodigo(normalized.codigo)
+
     return {
       ok: true,
       reportId,
@@ -466,6 +468,7 @@ async function saveDocumentToSqlServer(document) {
       nombre: normalized.nombre,
       elementCount: normalized.elementos.length,
       savedAt: new Date().toISOString(),
+      report,
     }
   } catch (error) {
     await transaction.rollback()

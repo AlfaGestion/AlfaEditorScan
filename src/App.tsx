@@ -534,6 +534,7 @@ function App() {
         reportId?: number
         elementCount?: number
         savedAt?: string
+        report?: SqlVerificationSnapshot | null
       }
 
       if (!saveResponse.ok || savePayload.ok === false) {
@@ -542,6 +543,29 @@ function App() {
 
       setSaveStatus('verifying')
       setSaveMessage('Verificando SQL...')
+
+      const savedReport = savePayload.report
+      if (savedReport) {
+        const expected = buildSqlVerificationSnapshot(documentState)
+        const verification = compareSqlVerificationSnapshots(expected, savedReport)
+
+        if (!verification.ok) {
+          const summary = verification.mismatches
+            .slice(0, 3)
+            .map((item) => `${item.path}: esperado ${JSON.stringify(item.expected)} / SQL ${JSON.stringify(item.actual)}`)
+            .join(' | ')
+          const detail = summary || 'La plantilla guardada no coincide con SQL.'
+          setSaveStatus('mismatch')
+          setSaveMessage('Guardó pero no coincide con SQL')
+          notify('error', detail)
+          return
+        }
+
+        setSaveStatus('verified')
+        setSaveMessage('Guardado y verificado en SQL')
+        notify('success', 'Guardado y verificado en SQL')
+        return
+      }
 
       let verifyPayload: {
         ok?: boolean
