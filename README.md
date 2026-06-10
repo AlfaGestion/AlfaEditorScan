@@ -41,15 +41,9 @@ http://localhost:5173
   - `Chico`
   - `Personalizado`
 - Arrastrar y redimensionar elementos estilo Canva.
-- Duplicar, eliminar, ocultar y centrar elementos.
-- Agrandar y achicar texto.
-- Alinear texto a izquierda, centro o derecha.
+- Editar texto con una barra flotante contextual.
 - Ver una vista previa con datos de ejemplo.
-- Exportar JSON.
-- Importar JSON.
-- Generar script SQL Server 2008+ para `dbo.Scan_Reporte` y `dbo.Scan_ReporteDetalle`.
-- Guardar directamente en SQL Server mediante el API local.
-- Guardar un borrador local en el navegador.
+- Guardar el diseño en SQL Server mediante el API local.
 
 ## Elementos soportados
 
@@ -78,48 +72,22 @@ Si necesitás un tamaño distinto, usá `Personalizado`.
 
 ### 2. Editar
 
-Arrastrá los elementos sobre el papel, ajustá tamaño y editá propiedades desde el panel derecho.
+Arrastrá los elementos sobre el papel y usá la barra flotante contextual para cambiar el texto, el tamaño, la alineación y el estilo.
 
-### 3. Exportar JSON
+### 3. Guardar
 
-Usá `Descargar JSON` o `Copiar JSON`.
+Usá el botón `Guardar`.
 
-El formato exportado sigue esta idea:
-
-```json
-{
-  "codigo": "gondola",
-  "nombre": "Góndola",
-  "anchoPapelMm": 80,
-  "altoPapelMm": 60,
-  "elementos": []
-}
-```
-
-### 4. Generar SQL
-
-Usá `Guardar en SQL`, `Descargar SQL` o `Copiar SQL`.
-
-`Guardar en SQL` conecta con el API local y escribe en la base de datos.
-
-`Descargar SQL` solo baja el script para revisarlo o archivarlo.
-
-El script se genera para una estructura compatible con:
+El editor envía el diseño al flujo local del proyecto para escribir en:
 
 - `dbo.Scan_Reporte`
 - `dbo.Scan_ReporteDetalle`
 
-Y reutiliza el mismo JSON para `PRINT_FORMATS_JSON`.
-
-### 5. Importar luego en AlfaScan
-
-El JSON exportado puede guardarse y luego reimportarse en AlfaScan como base de configuración de layouts.
+Si la conexión SQL no está disponible, el editor muestra un mensaje claro y deja el flujo preparado.
 
 ## Persistencia local
 
-El editor guarda automáticamente un borrador en `localStorage`.
-
-Si querés compartir o versionar el diseño, exportá el JSON y guardalo en disco.
+El editor mantiene el estado visual mientras trabajas. La fuente de verdad sigue siendo el guardado en SQL Server para compatibilidad con AlfaScan.
 
 ## Configuración SQL Server
 
@@ -147,14 +115,14 @@ Eso levanta:
 - Vite en `http://localhost:5173`
 - API local en `http://127.0.0.1:3001`
 
-El botón `Guardar en SQL` usa ese API local para conectar a SQL Server.
+El botón `Guardar` usa ese API local para conectar a SQL Server.
 
 ## Roadmap
 
-- Fase 1: editor local, exportar JSON, generar SQL.
-- Fase 2: abrir JSON e importar SQL.
+- Fase 1: editor local y guardado en SQL.
+- Fase 2: abrir layouts existentes.
 - Fase 3: API local opcional.
-- Fase 4: guardar directamente en SQL Server.
+- Fase 4: guardado directo en SQL Server.
 
 ## Scripts
 

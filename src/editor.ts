@@ -45,8 +45,10 @@ export interface EditorElement {
   fontSize: number
   fontWeight: FontWeight
   fontStyle: 'normal' | 'italic'
+  italica: boolean
   underline: boolean
   fontFamily: string
+  uppercase: boolean
   align: TextAlign
   visible: boolean
   color: string
@@ -126,8 +128,10 @@ const defaultElementStyles = {
   fontSize: 16,
   fontWeight: 'bold' as FontWeight,
   fontStyle: 'normal' as const,
+  italica: false,
   underline: false,
   fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
+  uppercase: false,
   align: 'left' as TextAlign,
   visible: true,
   lineHeight: 1.1,
@@ -196,7 +200,9 @@ function baseElements(): EditorElement[] {
       imageUrl: '',
       lineHeight: 1,
       fontStyle: 'normal',
+      italica: false,
       underline: false,
+      uppercase: false,
       fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
@@ -216,7 +222,9 @@ function baseElements(): EditorElement[] {
       imageUrl: '',
       lineHeight: 1,
       fontStyle: 'normal',
+      italica: false,
       underline: false,
+      uppercase: false,
       fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
@@ -236,7 +244,9 @@ function baseElements(): EditorElement[] {
       imageUrl: '',
       lineHeight: 1.2,
       fontStyle: 'normal',
+      italica: false,
       underline: false,
+      uppercase: false,
       fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
@@ -256,7 +266,9 @@ function baseElements(): EditorElement[] {
       imageUrl: '',
       lineHeight: 1,
       fontStyle: 'normal',
+      italica: false,
       underline: false,
+      uppercase: false,
       fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
@@ -276,7 +288,9 @@ function baseElements(): EditorElement[] {
       imageUrl: '',
       lineHeight: 1,
       fontStyle: 'normal',
+      italica: false,
       underline: false,
+      uppercase: false,
       fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
@@ -296,7 +310,9 @@ function baseElements(): EditorElement[] {
       imageUrl: '',
       lineHeight: 1,
       fontStyle: 'normal',
+      italica: false,
       underline: false,
+      uppercase: false,
       fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
@@ -316,7 +332,9 @@ function baseElements(): EditorElement[] {
       imageUrl: '',
       lineHeight: 1,
       fontStyle: 'normal',
+      italica: false,
       underline: false,
+      uppercase: false,
       fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
     {
@@ -336,7 +354,9 @@ function baseElements(): EditorElement[] {
       imageUrl: '',
       lineHeight: 1,
       fontStyle: 'normal',
+      italica: false,
       underline: false,
+      uppercase: false,
       fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
     },
   ]
@@ -398,7 +418,9 @@ function createElementDefaults(tipo: ElementType, index: number): EditorElement 
     imageUrl: '',
     lineHeight: 1.15,
     fontStyle: 'normal',
+    italica: false,
     underline: false,
+    uppercase: false,
     fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
   }
 
@@ -429,7 +451,9 @@ function createElementDefaults(tipo: ElementType, index: number): EditorElement 
         color: '#0f172a',
         lineHeight: 1,
         fontStyle: 'normal',
+        italica: false,
         underline: false,
+        uppercase: false,
         fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
       }
     case 'logo':
@@ -443,7 +467,9 @@ function createElementDefaults(tipo: ElementType, index: number): EditorElement 
         text: 'LOGO',
         color: '#0f172a',
         fontStyle: 'normal',
+        italica: false,
         underline: false,
+        uppercase: false,
         fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
       }
     default:
@@ -602,28 +628,41 @@ export function getElementName(tipo: ElementType): string {
 }
 
 export function getElementDisplayValue(element: EditorElement, data: SampleData): string {
+  let value = ''
   switch (element.tipo) {
     case 'empresa':
-      return data.companyName
+      value = data.companyName
+      break
     case 'descripcion':
-      return data.description
+      value = data.description
+      break
     case 'precio':
-      return data.price
+      value = data.price
+      break
     case 'codigoArticulo':
-      return data.internalCode
+      value = data.internalCode
+      break
     case 'codigoBarra':
-      return data.barcode
+      value = data.barcode
+      break
     case 'stock':
-      return data.stock
+      value = data.stock
+      break
     case 'fecha':
-      return data.date
+      value = data.date
+      break
     case 'textoFijo':
-      return element.text || 'Texto fijo'
+      value = element.text || 'Texto fijo'
+      break
     case 'logo':
-      return element.text || 'LOGO'
+      value = element.text || 'LOGO'
+      break
     case 'linea':
-      return ''
+      value = ''
+      break
   }
+
+  return element.uppercase ? value.toUpperCase() : value
 }
 
 export function escapeSqlLiteral(value: string): string {
@@ -682,6 +721,7 @@ function normalizeElement(value: unknown, index: number): EditorElement {
     fontSize: clamp(toNumber(item.fontSize, 14), 8, 80),
     fontWeight: item.fontWeight === 'normal' ? 'normal' : 'bold',
     fontStyle: item.fontStyle === 'italic' ? 'italic' : 'normal',
+    italica: item.italica === true || item.fontStyle === 'italic',
     underline: item.underline === true,
     fontFamily:
       typeof item.fontFamily === 'string' && item.fontFamily.trim()
@@ -693,6 +733,7 @@ function normalizeElement(value: unknown, index: number): EditorElement {
     text: typeof item.text === 'string' ? item.text : '',
     imageUrl: typeof item.imageUrl === 'string' ? item.imageUrl : '',
     lineHeight: clamp(toNumber(item.lineHeight, 1.15), 0.8, 2),
+    uppercase: item.uppercase === true,
   }
 }
 
@@ -734,7 +775,7 @@ export function buildSqlScript(document: LabelDocument): string {
         element.x,
       )}, ${round(element.y)}, ${round(element.width)}, ${round(element.height)}, ${round(
         element.fontSize,
-      )}, ${element.fontWeight === 'bold' ? 1 : 0}, N'${escapeSqlLiteral(
+      )}, ${element.fontWeight === 'bold' ? 1 : 0}, ${element.italica ? 1 : 0}, N'${escapeSqlLiteral(
         alineacion,
       )}', ${element.visible ? 1 : 0}, ${index + 1}, ${getDetalleMaxLineas(element)}, 0, GETDATE())`
     })
@@ -805,6 +846,7 @@ INSERT INTO dbo.Scan_ReporteDetalle (
   Alto,
   TamanoFuente,
   Negrita,
+  Italica,
   Alineacion,
   Visible,
   Orden,
@@ -945,11 +987,12 @@ function mapEditorElementToAlfaScan(element: EditorElement, index: number) {
     fontSize: round(element.fontSize),
     fontWeight: element.fontWeight === 'bold' ? '700' : '400',
     fontStyle: element.fontStyle,
+    italica: element.italica,
     underline: element.underline,
     fontFamily: element.fontFamily,
     align: element.align,
     color: element.color,
-    uppercase: false,
+    uppercase: element.uppercase,
     maxLines: getDetalleMaxLineas(element),
     zIndex: index + 1,
     sampleText: getAlfaScanSampleText(element),
@@ -994,6 +1037,7 @@ function mapAlfaScanElementToEditor(item: unknown, index: number): EditorElement
     fontSize: clamp(toNumber(source.fontSize, 14), 8, 80),
     fontWeight: String(source.fontWeight ?? '400') === '700' ? 'bold' : 'normal',
     fontStyle: String(source.fontStyle ?? 'normal') === 'italic' ? 'italic' : 'normal',
+    italica: source.italica === true || String(source.fontStyle ?? 'normal') === 'italic',
     underline: source.underline === true,
     fontFamily:
       typeof source.fontFamily === 'string' && source.fontFamily.trim()
@@ -1008,6 +1052,7 @@ function mapAlfaScanElementToEditor(item: unknown, index: number): EditorElement
         : '',
     imageUrl: typeof source.imageUrl === 'string' ? source.imageUrl : '',
     lineHeight: clamp(toNumber(source.lineHeight, 1.15), 0.8, 2),
+    uppercase: source.uppercase === true,
   }
 }
 
@@ -1093,10 +1138,10 @@ export function buildAlfaScanSqlScript(document: LabelDocument): string {
         element.x,
       )}, ${round(element.y)}, ${round(element.width)}, ${round(element.height)}, ${round(
         element.fontSize,
-      )}, ${element.fontWeight === 'bold' ? 1 : 0}, N'${escapeSqlLiteral(
+      )}, ${element.fontWeight === 'bold' ? 1 : 0}, ${element.italica ? 1 : 0}, N'${escapeSqlLiteral(
         align,
       )}', ${element.visible ? 1 : 0}, ${index + 1}, ${getDetalleMaxLineas(element)}, ${
-        element.tipo === 'textoFijo' || element.tipo === 'linea' ? 1 : 0
+        element.uppercase ? 1 : 0
       }, GETDATE())`
     })
     .join(',\n')
@@ -1166,6 +1211,7 @@ INSERT INTO dbo.Scan_ReporteDetalle (
   Alto,
   TamanoFuente,
   Negrita,
+  Italica,
   Alineacion,
   Visible,
   Orden,

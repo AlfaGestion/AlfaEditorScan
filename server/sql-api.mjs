@@ -131,6 +131,13 @@ function getSqlMaxLines(element) {
   return 1
 }
 
+async function hasColumn(pool, tableName, columnName) {
+  const result = await pool.request().query(`
+      SELECT CASE WHEN COL_LENGTH('${tableName}', '${columnName}') IS NULL THEN 0 ELSE 1 END AS HasColumn;
+    `)
+  return Boolean(result.recordset?.[0]?.HasColumn)
+}
+
 function normalizeDocument(document) {
   if (!document || typeof document !== 'object') {
     throw new Error('Documento invalido.')
@@ -158,12 +165,15 @@ function normalizeDocument(document) {
         height: toNumber(item?.height, 24),
         fontSize: toNumber(item?.fontSize, 14),
         fontWeight: item?.fontWeight === 'normal' ? 'normal' : 'bold',
+        fontStyle: item?.fontStyle === 'italic' ? 'italic' : 'normal',
+        italica: item?.italica === true || item?.fontStyle === 'italic',
         align: item?.align === 'center' || item?.align === 'right' ? item.align : 'left',
         visible: item?.visible !== false,
         color: typeof item?.color === 'string' ? item.color : '#111827',
         text: typeof item?.text === 'string' ? item.text : '',
         imageUrl: typeof item?.imageUrl === 'string' ? item.imageUrl : '',
         lineHeight: toNumber(item?.lineHeight, 1.15),
+        uppercase: item?.uppercase === true,
       }
     }),
   }
@@ -185,7 +195,7 @@ function getDetalleAlineacion(element) {
   return element.align || 'left'
 }
 
-function buildDetailTable(document, reportId) {
+function buildDetailTable(document, reportId, includeItalic = false) {
   const table = new sql.Table('dbo.Scan_ReporteDetalle')
   table.create = false
   table.columns.add('IdReporte', sql.Int, { nullable: false })
@@ -198,6 +208,9 @@ function buildDetailTable(document, reportId) {
   table.columns.add('Alto', sql.Int, { nullable: false })
   table.columns.add('TamanoFuente', sql.Int, { nullable: false })
   table.columns.add('Negrita', sql.Bit, { nullable: false })
+  if (includeItalic) {
+    table.columns.add('Italica', sql.Bit, { nullable: false })
+  }
   table.columns.add('Alineacion', sql.NVarChar(20), { nullable: false })
   table.columns.add('Visible', sql.Bit, { nullable: false })
   table.columns.add('Orden', sql.Int, { nullable: false })
@@ -217,11 +230,12 @@ function buildDetailTable(document, reportId) {
       Math.round(element.height),
       Math.round(element.fontSize),
       element.fontWeight === 'bold' ? 1 : 0,
+      ...(includeItalic ? [element.italica ? 1 : 0] : []),
       getDetalleAlineacion(element),
       element.visible ? 1 : 0,
       index + 1,
       getDetalleMaxLineas(element),
-      element.tipo === 'textoFijo' || element.tipo === 'linea' ? 1 : 0,
+      element.uppercase ? 1 : 0,
       new Date(),
     )
   })
@@ -257,6 +271,7 @@ async function saveDocumentToSqlServer(document) {
   await transaction.begin()
 
   try {
+    const includeItalic = await hasColumn(pool, 'dbo.Scan_ReporteDetalle', 'Italica').catch(() => false)
     const request = new sql.Request(transaction)
     request.input('Codigo', sql.NVarChar(50), normalized.codigo)
     request.input('Nombre', sql.NVarChar(100), normalized.nombre)
@@ -320,7 +335,7 @@ async function saveDocumentToSqlServer(document) {
       .input('IdReporte', sql.Int, reportId)
       .query('DELETE FROM dbo.Scan_ReporteDetalle WHERE IdReporte = @IdReporte')
 
-    const detailTable = buildDetailTable(normalized, reportId)
+    const detailTable = buildDetailTable(normalized, reportId, includeItalic)
     await new sql.Request(transaction).bulk(detailTable)
     log('Scan_ReporteDetalle saved', { reportId, rows: normalized.elementos.length })
 

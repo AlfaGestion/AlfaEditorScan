@@ -4,11 +4,6 @@ import './App.css'
 import heroLogo from './assets/hero.png'
 import {
   addElement,
-  alignElement,
-  buildFileName,
-  buildAlfaScanSqlScript,
-  changeFontSize,
-  centerElement,
   createDefaultDocument,
   duplicateElement,
   elementPalette,
@@ -17,16 +12,13 @@ import {
   getElementDisplayValue,
   getElementName,
   getPaperFormat,
-  parseAlfaScanDocumentJson,
   paperFormats,
   removeElement,
   sampleData,
   scaleDocumentToFormat,
-  serializeAlfaScanDocument,
   STORAGE_KEY,
   toggleVisibility,
   updateElement,
-  stretchElement,
   type EditorElement,
   type FormatCode,
   type LabelDocument,
@@ -34,15 +26,7 @@ import {
 
 type ToastKind = 'idle' | 'success' | 'error'
 
-type ActivityLevel = 'info' | 'success' | 'error'
 type ThemeMode = 'light' | 'dark'
-
-interface ActivityEntry {
-  id: string
-  level: ActivityLevel
-  message: string
-  detail?: string
-}
 
 interface PersistedState {
   document: LabelDocument
@@ -82,8 +66,10 @@ function normalizeStoredDocument(document: LabelDocument): LabelDocument {
     elementos: (document.elementos || []).map((element) => ({
       ...element,
       fontStyle: element.fontStyle === 'italic' ? 'italic' : 'normal',
+      italica: element.italica === true || element.fontStyle === 'italic',
       underline: Boolean(element.underline),
       fontFamily: element.fontFamily || 'Aptos, Segoe UI, Arial, sans-serif',
+      uppercase: Boolean(element.uppercase),
     })),
   }
 }
@@ -104,16 +90,6 @@ function readStoredState(): PersistedState | null {
   }
 }
 
-function downloadTextFile(filename: string, content: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
@@ -128,12 +104,10 @@ function App() {
   const [selectedId, setSelectedId] = useState<string>(
     stored?.selectedId ?? stored?.document.elementos[0]?.id ?? documentState.elementos[0]?.id ?? '',
   )
-  const [importText, setImportText] = useState('')
   const [toast, setToast] = useState<{ kind: ToastKind; message: string }>({
     kind: 'idle',
     message: '',
   })
-  const [activityLog, setActivityLog] = useState<ActivityEntry[]>([])
   const [customWidthMm, setCustomWidthMm] = useState(documentState.anchoPapelMm)
   const [customHeightMm, setCustomHeightMm] = useState(documentState.altoPapelMm)
   const [isSavingSql, setIsSavingSql] = useState(false)
@@ -143,8 +117,6 @@ function App() {
     ? selectedId
     : documentState.elementos[0]?.id ?? ''
   const selectedElement = getElementById(documentState, effectiveSelectedId)
-  const exportedJson = serializeAlfaScanDocument(documentState)
-  const sqlScript = buildAlfaScanSqlScript(documentState)
 
   useEffect(() => {
     localStorage.setItem(
@@ -175,17 +147,6 @@ function App() {
 
   function notify(kind: ToastKind, message: string) {
     setToast({ kind, message })
-  }
-
-  function pushActivity(level: ActivityLevel, message: string, detail?: string) {
-    const entry: ActivityEntry = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      level,
-      message,
-      detail,
-    }
-
-    setActivityLog((current) => [entry, ...current].slice(0, 8))
   }
 
   function updateDocument(next: LabelDocument) {
@@ -239,14 +200,6 @@ function App() {
     setSelectedId(next.elementos[next.elementos.length - 1]?.id ?? '')
   }
 
-  function handleDuplicate() {
-    if (!selectedElement) return
-    const next = duplicateElement(documentState, selectedElement.id)
-    const duplicatedId = next.elementos[next.elementos.findIndex((element) => element.id === selectedElement.id) + 1]?.id
-    updateDocument(next)
-    setSelectedId(duplicatedId ?? selectedElement.id)
-  }
-
   function handleDelete() {
     if (!selectedElement) return
     const next = removeElement(documentState, selectedElement.id)
@@ -254,44 +207,18 @@ function App() {
     setSelectedId(next.elementos[0]?.id ?? '')
   }
 
-  function handleCenter() {
-    if (!selectedElement) return
-    updateDocument(centerElement(documentState, selectedElement.id))
-  }
-
   function handleAlign(align: EditorElement['align']) {
     patchSelectedElement({ align })
   }
 
-  function handleFieldAlign(align: 'left' | 'center' | 'right') {
+  function handleToggleVisibility() {
     if (!selectedElement) return
-    updateDocument(alignElement(documentState, selectedElement.id, align))
-  }
-
-  function handleStretch() {
-    if (!selectedElement) return
-    updateDocument(stretchElement(documentState, selectedElement.id))
-  }
-
-  async function copyJson() {
-    await navigator.clipboard.writeText(exportedJson)
-    notify('success', 'JSON copiado al portapapeles.')
-  }
-
-  async function copySql() {
-    await navigator.clipboard.writeText(sqlScript)
-    notify('success', 'SQL copiado al portapapeles.')
-  }
-
-  function downloadJson() {
-    downloadTextFile(buildFileName(documentState, 'json'), exportedJson, 'application/json;charset=utf-8')
-    notify('success', 'JSON descargado.')
+    updateDocument(toggleVisibility(documentState, selectedElement.id))
   }
 
   async function saveSql() {
     setIsSavingSql(true)
     try {
-      pushActivity('info', 'Enviando documento a SQL Server...', `${documentState.elementos.length} elementos`)
       const response = await fetch('/api/sql/save', {
         method: 'POST',
         headers: {
@@ -314,74 +241,16 @@ function App() {
         throw new Error(payload.error || 'No se pudo guardar en SQL Server.')
       }
 
-      const infoParts = [
-        `Id ${payload.reportId ?? 's/d'}`,
-        payload.elementCount != null ? `${payload.elementCount} elementos` : '',
-        payload.savedAt ? new Date(payload.savedAt).toLocaleString('es-AR') : '',
-      ].filter(Boolean)
-
-      const detail = infoParts.join(' · ')
-      pushActivity('success', 'Guardado en SQL Server', detail)
-      notify('success', `Guardado en SQL Server. ${detail}`)
+      notify('success', 'Diseño guardado en SQL Server.')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo guardar en SQL Server.'
-      pushActivity('error', 'Error al guardar', message)
       notify('error', message)
     } finally {
       setIsSavingSql(false)
     }
   }
 
-  function downloadSql() {
-    downloadTextFile(buildFileName(documentState, 'sql'), sqlScript, 'text/sql;charset=utf-8')
-    notify('success', 'SQL descargado.')
-  }
-
-  function importJsonFromText() {
-    try {
-      const next = parseAlfaScanDocumentJson(importText, getPaperFormat('gondola'))
-      updateDocument(next)
-      setCustomWidthMm(next.anchoPapelMm)
-      setCustomHeightMm(next.altoPapelMm)
-      setSelectedId(next.elementos[0]?.id ?? '')
-      notify('success', 'JSON importado correctamente.')
-    } catch (error) {
-      notify('error', error instanceof Error ? error.message : 'No se pudo importar el JSON.')
-    }
-  }
-
-  function handleFileImport(file: File | null) {
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      try {
-        const text = typeof reader.result === 'string' ? reader.result : ''
-        const next = parseAlfaScanDocumentJson(text, getPaperFormat('gondola'))
-        updateDocument(next)
-        setCustomWidthMm(next.anchoPapelMm)
-        setCustomHeightMm(next.altoPapelMm)
-        setSelectedId(next.elementos[0]?.id ?? '')
-        notify('success', 'JSON cargado desde archivo.')
-      } catch (error) {
-        notify('error', error instanceof Error ? error.message : 'No se pudo leer el archivo.')
-      }
-    }
-    reader.readAsText(file)
-  }
-
-  function saveToBrowser() {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        document: documentState,
-        selectedId,
-      }),
-    )
-    notify('success', 'Borrador guardado localmente.')
-  }
-
   const customFormatActive = normalizeFormatCode(documentState.codigo) === 'custom'
-  const isTextEditable = Boolean(selectedElement && selectedElement.tipo !== 'linea' && selectedElement.tipo !== 'logo')
   const themeLabel = themeMode === 'dark' ? 'Modo oscuro' : 'Modo claro'
 
   const toggleTheme = () => {
@@ -393,14 +262,12 @@ function App() {
     patchSelectedElement({ fontWeight: nextWeight })
   }
 
-  const setSelectedFontStyle = (nextStyle: 'normal' | 'italic') => {
+  const setSelectedItalic = (value: boolean) => {
     if (!selectedElement) return
-    patchSelectedElement({ fontStyle: nextStyle })
-  }
-
-  const setSelectedUnderline = (value: boolean) => {
-    if (!selectedElement) return
-    patchSelectedElement({ underline: value })
+    patchSelectedElement({
+      italica: value,
+      fontStyle: value ? 'italic' : 'normal',
+    })
   }
 
   return (
@@ -419,41 +286,14 @@ function App() {
           <button className="ghost" type="button" onClick={toggleTheme}>
             {themeLabel}
           </button>
-          <button className="ghost" type="button" onClick={saveToBrowser}>
-            Guardar borrador
-          </button>
           <button className="primary" type="button" onClick={saveSql} disabled={isSavingSql}>
-            {isSavingSql ? 'Guardando...' : 'Guardar en SQL'}
+            {isSavingSql ? 'Guardando...' : 'Guardar'}
           </button>
-          <button className="ghost" type="button" onClick={downloadJson}>
-            Descargar JSON
-          </button>
-          <button className="ghost" type="button" onClick={downloadSql} disabled={isSavingSql}>
-            Descargar SQL
-          </button>
-        </div>
-      </header>
-
-      <section className="save-status card">
-        <div className="card-head">
-          <h2>Estado de guardado</h2>
           <span className={`pill ${isSavingSql ? 'pill-warn' : toast.kind === 'error' ? 'pill-error' : ''}`}>
             {isSavingSql ? 'Guardando...' : toast.message || 'Listo'}
           </span>
         </div>
-        <div className="activity-log">
-          {activityLog.length === 0 ? (
-            <p className="helper-text">Todavía no hay eventos de guardado.</p>
-          ) : (
-            activityLog.map((entry) => (
-              <div key={entry.id} className={`activity-item level-${entry.level}`}>
-                <strong>{entry.message}</strong>
-                {entry.detail ? <span>{entry.detail}</span> : null}
-              </div>
-            ))
-          )}
-        </div>
-      </section>
+      </header>
 
       <main className="workspace">
         <aside className="panel left-panel">
@@ -529,57 +369,73 @@ function App() {
               ))}
             </div>
           </section>
-
-          <section className="card">
-            <div className="card-head">
-              <h2>Importar</h2>
-              <span className={`pill ${toast.kind === 'error' ? 'pill-error' : ''}`}>
-                {toast.message || 'Local'}
-              </span>
-            </div>
-            <textarea
-              rows={10}
-              value={importText}
-              onChange={(event) => setImportText(event.target.value)}
-              placeholder="Pegá acá el JSON exportado."
-            />
-            <div className="row">
-              <label className="file-button">
-                Cargar archivo JSON
-                <input
-                  type="file"
-                  accept="application/json,.json"
-                  onChange={(event) => handleFileImport(event.target.files?.[0] ?? null)}
-                />
-              </label>
-              <button className="ghost" type="button" onClick={importJsonFromText}>
-                Importar texto
-              </button>
-            </div>
-            <p className="helper-text">
-              El JSON queda listo para reimportarlo en AlfaScan o para versionarlo en disco.
-            </p>
-          </section>
         </aside>
 
         <section className="canvas-column">
-          <div className="canvas-toolbar card">
-            <div>
-              <p className="eyebrow">Vista previa</p>
-              <h2>{documentState.nombre}</h2>
+          {selectedElement ? (
+            <div className="floating-toolbar card">
+              <div className="floating-toolbar-left">
+                <strong>{selectedElement.nombre}</strong>
+                <span>{getElementName(selectedElement.tipo)}</span>
+              </div>
+              <div className="floating-toolbar-group">
+                <label className="mini-control">
+                  <span>Tamaño</span>
+                  <select
+                    value={selectedElement.fontSize}
+                    onChange={(event) => patchSelectedElement({ fontSize: Number(event.target.value) })}
+                  >
+                    {[8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button type="button" className={`tool-button tool-button-inline ${selectedElement.fontWeight === 'bold' ? 'is-active' : ''}`} onClick={() => setSelectedFontWeight(selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}>
+                  <span className="tool-icon">B</span>
+                  <span>Negrita</span>
+                </button>
+                <button type="button" className={`tool-button tool-button-inline ${selectedElement.italica ? 'is-active' : ''}`} onClick={() => setSelectedItalic(!selectedElement.italica)}>
+                  <span className="tool-icon">I</span>
+                  <span>Itálica</span>
+                </button>
+                <button type="button" className={`tool-button tool-button-inline ${selectedElement.uppercase ? 'is-active' : ''}`} onClick={() => patchSelectedElement({ uppercase: !selectedElement.uppercase })}>
+                  <span className="tool-icon">AA</span>
+                  <span>Mayús.</span>
+                </button>
+                <button type="button" className="tool-button tool-button-inline" onClick={() => handleAlign('left')}>
+                  <span className="tool-icon">⟸</span>
+                  <span>Izq.</span>
+                </button>
+                <button type="button" className="tool-button tool-button-inline" onClick={() => handleAlign('center')}>
+                  <span className="tool-icon">≡</span>
+                  <span>Centro</span>
+                </button>
+                <button type="button" className="tool-button tool-button-inline" onClick={() => handleAlign('right')}>
+                  <span className="tool-icon">⟹</span>
+                  <span>Der.</span>
+                </button>
+                <button type="button" className="tool-button tool-button-inline" onClick={handleToggleVisibility}>
+                  <span className="tool-icon">{selectedElement.visible ? '👁' : '🚫'}</span>
+                  <span>{selectedElement.visible ? 'Visible' : 'Oculto'}</span>
+                </button>
+                <button type="button" className="tool-button tool-button-inline" onClick={() => {
+                  const next = duplicateElement(documentState, selectedElement.id)
+                  const duplicatedId = next.elementos[next.elementos.findIndex((element) => element.id === selectedElement.id) + 1]?.id
+                  updateDocument(next)
+                  setSelectedId(duplicatedId ?? selectedElement.id)
+                }}>
+                  <span className="tool-icon">⧉</span>
+                  <span>Duplicar</span>
+                </button>
+                <button type="button" className="tool-button danger-tool tool-button-inline" onClick={handleDelete}>
+                  <span className="tool-icon">🗑</span>
+                  <span>Eliminar</span>
+                </button>
+              </div>
             </div>
-            <div className="toolbar-group">
-              <button className="ghost" type="button" onClick={copyJson}>
-                Copiar JSON
-              </button>
-              <button className="ghost" type="button" onClick={copySql}>
-                Copiar SQL
-              </button>
-              <button className="ghost" type="button" onClick={() => handleAddElement('textoFijo')}>
-                + Texto
-              </button>
-            </div>
-          </div>
+          ) : null}
 
           <div className="canvas-stage">
             <div
@@ -600,8 +456,8 @@ function App() {
                     size={{ width: element.width, height: element.height }}
                     position={{ x: element.x, y: element.y }}
                     enableResizing={element.tipo !== 'linea'}
-                    dragGrid={[1, 1]}
-                    resizeGrid={[1, 1]}
+                    dragGrid={[4, 4]}
+                    resizeGrid={[4, 4]}
                     onDragStop={(_, data) => {
                       updateDocument(updateElement(documentState, element.id, { x: data.x, y: data.y }))
                     }}
@@ -655,307 +511,6 @@ function App() {
             </div>
           </div>
         </section>
-
-        <aside className="panel right-panel">
-          <section className="card">
-            <div className="card-head">
-              <h2>Propiedades</h2>
-              <span className="pill">{selectedElement ? selectedElement.nombre : 'Sin selección'}</span>
-            </div>
-            {selectedElement ? (
-              <>
-                {isTextEditable ? (
-                  <section className="text-toolbar">
-                    <div className="text-toolbar-row">
-                      <label className="toolbar-field toolbar-field-wide">
-                        <span>Fuente</span>
-                        <select
-                          value={selectedElement.fontFamily}
-                          onChange={(event) => patchSelectedElement({ fontFamily: event.target.value })}
-                        >
-                          <option value="Aptos, Segoe UI, Arial, sans-serif">Aptos</option>
-                          <option value="Segoe UI, Arial, sans-serif">Segoe UI</option>
-                          <option value="Arial, sans-serif">Arial</option>
-                          <option value="Georgia, serif">Georgia</option>
-                          <option value="'Times New Roman', serif">Times New Roman</option>
-                          <option value="'Courier New', monospace">Courier New</option>
-                        </select>
-                      </label>
-
-                      <label className="toolbar-field toolbar-field-narrow">
-                        <span>Tamaño</span>
-                        <div className="number-stepper">
-                          <button type="button" className="stepper-button" onClick={() => updateDocument(changeFontSize(documentState, selectedElement.id, -2))}>
-                            -
-                          </button>
-                          <input
-                            type="number"
-                            min={8}
-                            max={80}
-                            value={selectedElement.fontSize}
-                            onChange={(event) => patchSelectedElement({ fontSize: Number(event.target.value) })}
-                          />
-                          <button type="button" className="stepper-button" onClick={() => updateDocument(changeFontSize(documentState, selectedElement.id, 2))}>
-                            +
-                          </button>
-                        </div>
-                      </label>
-                    </div>
-
-                    <div className="text-toolbar-row toolbar-buttons-row">
-                      <button
-                        type="button"
-                        className={`tool-button tool-button-inline ${selectedElement.fontWeight === 'bold' ? 'is-active' : ''}`}
-                        onClick={() => setSelectedFontWeight(selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}
-                        title="Activar o desactivar negrita."
-                      >
-                        <span className="tool-icon">B</span>
-                        <span>Negrita</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`tool-button tool-button-inline ${selectedElement.fontStyle === 'italic' ? 'is-active' : ''}`}
-                        onClick={() => setSelectedFontStyle(selectedElement.fontStyle === 'italic' ? 'normal' : 'italic')}
-                        title="Activar o desactivar cursiva."
-                      >
-                        <span className="tool-icon">I</span>
-                        <span>Cursiva</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`tool-button tool-button-inline ${selectedElement.underline ? 'is-active' : ''}`}
-                        onClick={() => setSelectedUnderline(!selectedElement.underline)}
-                        title="Activar o desactivar subrayado."
-                      >
-                        <span className="tool-icon">U</span>
-                        <span>Subrayado</span>
-                      </button>
-                      <button type="button" className="tool-button tool-button-inline" title="Alinear texto a la izquierda." onClick={() => handleAlign('left')}>
-                        <span className="tool-icon">⟸</span>
-                        <span>Izquierda</span>
-                      </button>
-                      <button type="button" className="tool-button tool-button-inline" title="Centrar texto." onClick={() => handleAlign('center')}>
-                        <span className="tool-icon">≡</span>
-                        <span>Centro</span>
-                      </button>
-                      <button type="button" className="tool-button tool-button-inline" title="Alinear texto a la derecha." onClick={() => handleAlign('right')}>
-                        <span className="tool-icon">⟹</span>
-                        <span>Derecha</span>
-                      </button>
-                    </div>
-                  </section>
-                ) : null}
-                <div className="field">
-                  <label htmlFor="element-name">Nombre</label>
-                  <input
-                    id="element-name"
-                    type="text"
-                    value={selectedElement.nombre}
-                    onChange={(event) => patchSelectedElement({ nombre: event.target.value })}
-                  />
-                </div>
-                <div className="grid-2">
-                  <div className="field">
-                    <label htmlFor="element-x">X</label>
-                    <input
-                      id="element-x"
-                      type="number"
-                      value={selectedElement.x}
-                      onChange={(event) => patchSelectedElement({ x: Number(event.target.value) })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="element-y">Y</label>
-                    <input
-                      id="element-y"
-                      type="number"
-                      value={selectedElement.y}
-                      onChange={(event) => patchSelectedElement({ y: Number(event.target.value) })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="element-width">Ancho</label>
-                    <input
-                      id="element-width"
-                      type="number"
-                      value={selectedElement.width}
-                      onChange={(event) => patchSelectedElement({ width: Number(event.target.value) })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="element-height">Alto</label>
-                    <input
-                      id="element-height"
-                      type="number"
-                      value={selectedElement.height}
-                      onChange={(event) => patchSelectedElement({ height: Number(event.target.value) })}
-                    />
-                  </div>
-                </div>
-                <div className="grid-2">
-                  <div className="field">
-                    <label htmlFor="element-font">Letra</label>
-                    <input
-                      id="element-font"
-                      type="number"
-                      min={8}
-                      max={64}
-                      value={selectedElement.fontSize}
-                      onChange={(event) => patchSelectedElement({ fontSize: Number(event.target.value) })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="element-color">Color</label>
-                    <input
-                      id="element-color"
-                      type="color"
-                      value={selectedElement.color}
-                      onChange={(event) => patchSelectedElement({ color: event.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="field">
-                  <label htmlFor="element-text">Texto fijo / logo</label>
-                  <input
-                    id="element-text"
-                    type="text"
-                    value={selectedElement.text}
-                    onChange={(event) => patchSelectedElement({ text: event.target.value })}
-                    disabled={selectedElement.tipo === 'linea'}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="element-image">Logo URL</label>
-                  <input
-                    id="element-image"
-                    type="text"
-                    value={selectedElement.imageUrl}
-                    onChange={(event) => patchSelectedElement({ imageUrl: event.target.value })}
-                    disabled={selectedElement.tipo !== 'logo'}
-                    placeholder="Opcional"
-                  />
-                </div>
-                <div className="ribbon">
-                  <div className="ribbon-section">
-                    <div className="ribbon-head">
-                      <strong>Texto</strong>
-                      <span>Letra del campo</span>
-                    </div>
-                    <div className="ribbon-actions">
-                      <button type="button" className="tool-button" title="Aumenta el tamaño de la letra del elemento seleccionado." onClick={() => updateDocument(changeFontSize(documentState, selectedElement.id, 2))}>
-                        <span className="tool-icon">A+</span>
-                        <span>Aumentar</span>
-                      </button>
-                      <button type="button" className="tool-button" title="Disminuye el tamaño de la letra del elemento seleccionado." onClick={() => updateDocument(changeFontSize(documentState, selectedElement.id, -2))}>
-                        <span className="tool-icon">A-</span>
-                        <span>Disminuir</span>
-                      </button>
-                      <button type="button" className="tool-button" title="Alinea el texto del campo a la izquierda." onClick={() => handleAlign('left')}>
-                        <span className="tool-icon">⟸</span>
-                        <span>Izquierda</span>
-                      </button>
-                      <button type="button" className="tool-button" title="Alinea el texto del campo al centro." onClick={() => handleAlign('center')}>
-                        <span className="tool-icon">≡</span>
-                        <span>Centro</span>
-                      </button>
-                      <button type="button" className="tool-button" title="Alinea el texto del campo a la derecha." onClick={() => handleAlign('right')}>
-                        <span className="tool-icon">⟹</span>
-                        <span>Derecha</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="ribbon-divider" />
-
-                  <div className="ribbon-section">
-                    <div className="ribbon-head">
-                      <strong>Bloque</strong>
-                      <span>Posición y tamaño</span>
-                    </div>
-                    <div className="ribbon-actions">
-                      <button type="button" className="tool-button" title="Mueve el bloque seleccionado hacia el lado izquierdo del papel." onClick={() => handleFieldAlign('left')}>
-                        <span className="tool-icon">◁</span>
-                        <span>Izquierda</span>
-                      </button>
-                      <button type="button" className="tool-button" title="Centra el bloque seleccionado dentro del papel." onClick={() => handleFieldAlign('center')}>
-                        <span className="tool-icon">◫</span>
-                        <span>Centro</span>
-                      </button>
-                      <button type="button" className="tool-button" title="Mueve el bloque seleccionado hacia el lado derecho del papel." onClick={() => handleFieldAlign('right')}>
-                        <span className="tool-icon">▷</span>
-                        <span>Derecha</span>
-                      </button>
-                      <button type="button" className="tool-button" title="Hace que el bloque ocupe todo el ancho útil del papel." onClick={handleStretch}>
-                        <span className="tool-icon">↔</span>
-                        <span>Estirar</span>
-                      </button>
-                      <button type="button" className="tool-button" title="Centra el bloque seleccionado en el medio exacto del papel." onClick={handleCenter}>
-                        <span className="tool-icon">◎</span>
-                        <span>Centrar</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="ribbon-divider" />
-
-                  <div className="ribbon-section">
-                    <div className="ribbon-head">
-                      <strong>Acciones</strong>
-                      <span>Duplicar, ocultar o borrar</span>
-                    </div>
-                    <div className="ribbon-actions">
-                      <button type="button" className="tool-button" onClick={handleDuplicate}>
-                        <span className="tool-icon">⧉</span>
-                        <span>Duplicar</span>
-                      </button>
-                      <button type="button" className="tool-button" onClick={() => updateDocument(toggleVisibility(documentState, selectedElement.id))}>
-                        <span className="tool-icon">👁</span>
-                        <span>{selectedElement.visible ? 'Ocultar' : 'Mostrar'}</span>
-                      </button>
-                      <button type="button" className="tool-button danger-tool" onClick={handleDelete}>
-                        <span className="tool-icon">🗑</span>
-                        <span>Eliminar</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <p className="helper-text">
-                Seleccioná un elemento en el canvas para editar posición, tamaño y estilo.
-              </p>
-            )}
-          </section>
-
-          <section className="card">
-            <div className="card-head">
-              <h2>Compatibilidad</h2>
-              <span className="pill">AlfaScan</span>
-            </div>
-            <div className="compat-grid">
-              <div>
-                <strong>JSON</strong>
-                <p>Exporta la estructura que después puede leer AlfaScan.</p>
-              </div>
-              <div>
-                <strong>SQL Server</strong>
-                <p>Genera script para <code>dbo.Scan_Reporte</code> y <code>dbo.Scan_ReporteDetalle</code>.</p>
-              </div>
-              <div>
-                <strong>Sin servidor</strong>
-                <p>Todo funciona localmente en el navegador, sin API ni login.</p>
-              </div>
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="card-head">
-              <h2>Resumen</h2>
-              <span className="pill">{sqlScript.length.toLocaleString('es-AR')} chars</span>
-            </div>
-            <pre className="code-block">{sqlScript}</pre>
-          </section>
-        </aside>
       </main>
     </div>
   )
