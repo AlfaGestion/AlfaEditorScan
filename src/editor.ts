@@ -55,6 +55,7 @@ export interface EditorElement {
   text: string
   imageUrl: string
   lineHeight: number
+  maxLineas: number
 }
 
 export interface SampleData {
@@ -135,6 +136,7 @@ const defaultElementStyles = {
   align: 'left' as TextAlign,
   visible: true,
   lineHeight: 1.1,
+  maxLineas: 1,
 }
 
 function uid(prefix = 'el'): string {
@@ -734,6 +736,7 @@ function normalizeElement(value: unknown, index: number): EditorElement {
     imageUrl: typeof item.imageUrl === 'string' ? item.imageUrl : '',
     lineHeight: clamp(toNumber(item.lineHeight, 1.15), 0.8, 2),
     uppercase: item.uppercase === true,
+    maxLineas: Math.max(1, Math.round(toNumber(item.maxLineas, tipo === 'descripcion' ? 3 : tipo === 'textoFijo' ? 2 : 1))),
   }
 }
 
@@ -892,9 +895,7 @@ function getDetalleTextoFijo(element: EditorElement): string | null {
 }
 
 function getDetalleMaxLineas(element: EditorElement): number {
-  if (element.tipo === 'descripcion') return 3
-  if (element.tipo === 'textoFijo') return 2
-  return 1
+  return Math.max(1, Math.round(element.maxLineas || (element.tipo === 'descripcion' ? 3 : element.tipo === 'textoFijo' ? 2 : 1)))
 }
 
 export function buildFileName(document: LabelDocument, extension: string): string {
@@ -1053,6 +1054,7 @@ function mapAlfaScanElementToEditor(item: unknown, index: number): EditorElement
     imageUrl: typeof source.imageUrl === 'string' ? source.imageUrl : '',
     lineHeight: clamp(toNumber(source.lineHeight, 1.15), 0.8, 2),
     uppercase: source.uppercase === true,
+    maxLineas: Math.max(1, Math.round(toNumber(source.maxLineas, tipo === 'descripcion' ? 3 : tipo === 'textoFijo' ? 2 : 1))),
   }
 }
 

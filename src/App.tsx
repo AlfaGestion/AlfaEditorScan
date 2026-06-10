@@ -70,6 +70,7 @@ function normalizeStoredDocument(document: LabelDocument): LabelDocument {
       underline: Boolean(element.underline),
       fontFamily: element.fontFamily || 'Aptos, Segoe UI, Arial, sans-serif',
       uppercase: Boolean(element.uppercase),
+      maxLineas: Number(element.maxLineas ?? 1),
     })),
   }
 }
@@ -110,7 +111,9 @@ function App() {
   })
   const [customWidthMm, setCustomWidthMm] = useState(documentState.anchoPapelMm)
   const [customHeightMm, setCustomHeightMm] = useState(documentState.altoPapelMm)
+  const [zoom, setZoom] = useState(1)
   const [isSavingSql, setIsSavingSql] = useState(false)
+  const [showAdvancedInspector, setShowAdvancedInspector] = useState(false)
 
   const canvas = getCanvasSize(documentState)
   const effectiveSelectedId = documentState.elementos.some((element) => element.id === selectedId)
@@ -216,6 +219,28 @@ function App() {
     updateDocument(toggleVisibility(documentState, selectedElement.id))
   }
 
+  function handleDuplicate() {
+    if (!selectedElement) return
+    const next = duplicateElement(documentState, selectedElement.id)
+    const duplicatedId = next.elementos[next.elementos.findIndex((element) => element.id === selectedElement.id) + 1]?.id
+    updateDocument(next)
+    setSelectedId(duplicatedId ?? selectedElement.id)
+  }
+
+  function handleEditText(element: EditorElement) {
+    if (!['textoFijo', 'empresa', 'descripcion', 'precio', 'codigoArticulo', 'codigoBarra', 'stock', 'fecha', 'logo'].includes(element.tipo)) {
+      return
+    }
+
+    const nextText = window.prompt('Editar texto', element.text || '')
+    if (nextText === null) return
+    updateDocument(updateElement(documentState, element.id, { text: nextText }))
+  }
+
+  function updateZoom(delta: number) {
+    setZoom((current) => clamp(Number((current + delta).toFixed(2)), 0.75, 1.35))
+  }
+
   async function saveSql() {
     setIsSavingSql(true)
     try {
@@ -252,6 +277,7 @@ function App() {
 
   const customFormatActive = normalizeFormatCode(documentState.codigo) === 'custom'
   const themeLabel = themeMode === 'dark' ? 'Modo oscuro' : 'Modo claro'
+  const zoomLabel = `${Math.round(zoom * 100)}%`
 
   const toggleTheme = () => {
     setThemeMode((current) => (current === 'dark' ? 'light' : 'dark'))
@@ -270,6 +296,12 @@ function App() {
     })
   }
 
+  const toolbarWidth = 344
+  const toolbarLeft = selectedElement
+    ? clamp(selectedElement.x, 8, Math.max(8, canvas.widthPx - toolbarWidth - 8))
+    : 8
+  const toolbarTop = selectedElement ? Math.max(8, selectedElement.y - 54) : 8
+
   return (
     <div className="app-shell" data-theme={themeMode}>
       <header className="topbar">
@@ -283,6 +315,9 @@ function App() {
           </div>
         </div>
         <div className="topbar-actions">
+          <button className="ghost" type="button" onClick={() => setShowAdvancedInspector((current) => !current)}>
+            {showAdvancedInspector ? 'Cerrar opciones' : 'Más opciones'}
+          </button>
           <button className="ghost" type="button" onClick={toggleTheme}>
             {themeLabel}
           </button>
@@ -372,144 +407,289 @@ function App() {
         </aside>
 
         <section className="canvas-column">
-          {selectedElement ? (
-            <div className="floating-toolbar card">
-              <div className="floating-toolbar-left">
-                <strong>{selectedElement.nombre}</strong>
-                <span>{getElementName(selectedElement.tipo)}</span>
-              </div>
-              <div className="floating-toolbar-group">
-                <label className="mini-control">
-                  <span>Tamaño</span>
-                  <select
-                    value={selectedElement.fontSize}
-                    onChange={(event) => patchSelectedElement({ fontSize: Number(event.target.value) })}
-                  >
-                    {[8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64].map((size) => (
-                      <option key={size} value={size}>
-                        {size}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button type="button" className={`tool-button tool-button-inline ${selectedElement.fontWeight === 'bold' ? 'is-active' : ''}`} onClick={() => setSelectedFontWeight(selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}>
-                  <span className="tool-icon">B</span>
-                  <span>Negrita</span>
-                </button>
-                <button type="button" className={`tool-button tool-button-inline ${selectedElement.italica ? 'is-active' : ''}`} onClick={() => setSelectedItalic(!selectedElement.italica)}>
-                  <span className="tool-icon">I</span>
-                  <span>Itálica</span>
-                </button>
-                <button type="button" className={`tool-button tool-button-inline ${selectedElement.uppercase ? 'is-active' : ''}`} onClick={() => patchSelectedElement({ uppercase: !selectedElement.uppercase })}>
-                  <span className="tool-icon">AA</span>
-                  <span>Mayús.</span>
-                </button>
-                <button type="button" className="tool-button tool-button-inline" onClick={() => handleAlign('left')}>
-                  <span className="tool-icon">⟸</span>
-                  <span>Izq.</span>
-                </button>
-                <button type="button" className="tool-button tool-button-inline" onClick={() => handleAlign('center')}>
-                  <span className="tool-icon">≡</span>
-                  <span>Centro</span>
-                </button>
-                <button type="button" className="tool-button tool-button-inline" onClick={() => handleAlign('right')}>
-                  <span className="tool-icon">⟹</span>
-                  <span>Der.</span>
-                </button>
-                <button type="button" className="tool-button tool-button-inline" onClick={handleToggleVisibility}>
-                  <span className="tool-icon">{selectedElement.visible ? '👁' : '🚫'}</span>
-                  <span>{selectedElement.visible ? 'Visible' : 'Oculto'}</span>
-                </button>
-                <button type="button" className="tool-button tool-button-inline" onClick={() => {
-                  const next = duplicateElement(documentState, selectedElement.id)
-                  const duplicatedId = next.elementos[next.elementos.findIndex((element) => element.id === selectedElement.id) + 1]?.id
-                  updateDocument(next)
-                  setSelectedId(duplicatedId ?? selectedElement.id)
-                }}>
-                  <span className="tool-icon">⧉</span>
-                  <span>Duplicar</span>
-                </button>
-                <button type="button" className="tool-button danger-tool tool-button-inline" onClick={handleDelete}>
-                  <span className="tool-icon">🗑</span>
-                  <span>Eliminar</span>
-                </button>
-              </div>
-            </div>
-          ) : null}
-
           <div className="canvas-stage">
-            <div
-              className="paper"
-              style={{
-                width: canvas.widthPx,
-                height: canvas.heightPx,
-              }}
-            >
-              {documentState.elementos.map((element, index) => {
-                const isSelected = element.id === selectedId
-                const hiddenClass = element.visible ? '' : 'is-hidden'
-
-                return (
-                  <Rnd
-                    key={element.id}
-                    bounds="parent"
-                    size={{ width: element.width, height: element.height }}
-                    position={{ x: element.x, y: element.y }}
-                    enableResizing={element.tipo !== 'linea'}
-                    dragGrid={[4, 4]}
-                    resizeGrid={[4, 4]}
-                    onDragStop={(_, data) => {
-                      updateDocument(updateElement(documentState, element.id, { x: data.x, y: data.y }))
+            <div className="paper-zoom-frame" style={{ width: canvas.widthPx * zoom, height: canvas.heightPx * zoom }}>
+              <div
+                className="paper"
+                style={{
+                  width: canvas.widthPx,
+                  height: canvas.heightPx,
+                  transform: `scale(${zoom})`,
+                }}
+              >
+                {selectedElement ? (
+                  <div
+                    className="floating-toolbar card"
+                    style={{
+                      left: toolbarLeft,
+                      top: toolbarTop,
+                      width: toolbarWidth,
                     }}
-                    onResizeStop={(_, __, ref, ___, position) => {
-                      updateDocument(
-                        updateElement(documentState, element.id, {
-                          width: Math.round(ref.offsetWidth),
-                          height: Math.round(ref.offsetHeight),
-                          x: position.x,
-                          y: position.y,
-                        }),
-                      )
-                    }}
-                    className={`draggable-element ${isSelected ? 'selected' : ''} ${hiddenClass}`}
-                    onMouseDown={() => setSelectedId(element.id)}
                   >
-                    <div
-                      className={`element-content type-${element.tipo}`}
-                      style={{
-                        color: element.color,
-                        fontSize: element.fontSize,
-                        fontWeight: element.fontWeight,
-                        fontStyle: element.fontStyle,
-                        textDecoration: element.underline ? 'underline' : 'none',
-                        fontFamily: element.fontFamily,
-                        textAlign: element.align,
-                        lineHeight: element.lineHeight,
+                    <label className="toolbar-control toolbar-select">
+                      <span>Tamaño</span>
+                      <select
+                        value={selectedElement.fontSize}
+                        onChange={(event) => patchSelectedElement({ fontSize: Number(event.target.value) })}
+                      >
+                        {[8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64].map((size) => (
+                          <option key={size} value={size}>
+                            {size}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="toolbar-color" title="Color">
+                      <span>Color</span>
+                      <input
+                        type="color"
+                        value={selectedElement.color}
+                        onChange={(event) => patchSelectedElement({ color: event.target.value })}
+                        aria-label="Color del elemento"
+                      />
+                    </label>
+                    <div className="toolbar-segment" role="group" aria-label="Formato de texto">
+                      <button
+                        type="button"
+                        className={`tool-button icon-button ${selectedElement.fontWeight === 'bold' ? 'is-active' : ''}`}
+                        onClick={() => setSelectedFontWeight(selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}
+                        title="Negrita"
+                        aria-label="Negrita"
+                      >
+                        B
+                      </button>
+                      <button
+                        type="button"
+                        className={`tool-button icon-button ${selectedElement.italica ? 'is-active' : ''}`}
+                        onClick={() => setSelectedItalic(!selectedElement.italica)}
+                        title="Itálica"
+                        aria-label="Itálica"
+                      >
+                        I
+                      </button>
+                      <button
+                        type="button"
+                        className={`tool-button icon-button ${selectedElement.uppercase ? 'is-active' : ''}`}
+                        onClick={() => patchSelectedElement({ uppercase: !selectedElement.uppercase })}
+                        title="Mayúsculas"
+                        aria-label="Mayúsculas"
+                      >
+                        AA
+                      </button>
+                    </div>
+                    <div className="toolbar-segment" role="group" aria-label="Alineación">
+                      <button
+                        type="button"
+                        className={`tool-button icon-button ${selectedElement.align === 'left' ? 'is-active' : ''}`}
+                        onClick={() => handleAlign('left')}
+                        title="Alinear a la izquierda"
+                        aria-label="Alinear a la izquierda"
+                      >
+                        ⟸
+                      </button>
+                      <button
+                        type="button"
+                        className={`tool-button icon-button ${selectedElement.align === 'center' ? 'is-active' : ''}`}
+                        onClick={() => handleAlign('center')}
+                        title="Centrar"
+                        aria-label="Centrar"
+                      >
+                        ≡
+                      </button>
+                      <button
+                        type="button"
+                        className={`tool-button icon-button ${selectedElement.align === 'right' ? 'is-active' : ''}`}
+                        onClick={() => handleAlign('right')}
+                        title="Alinear a la derecha"
+                        aria-label="Alinear a la derecha"
+                      >
+                        ⟹
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className={`tool-button icon-button ${selectedElement.visible ? 'is-active' : ''}`}
+                      onClick={handleToggleVisibility}
+                      title={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
+                      aria-label={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
+                    >
+                      {selectedElement.visible ? '👁' : '🚫'}
+                    </button>
+                    <button
+                      type="button"
+                      className="tool-button icon-button"
+                      onClick={handleDuplicate}
+                      title="Duplicar"
+                      aria-label="Duplicar"
+                    >
+                      ⧉
+                    </button>
+                    <button
+                      type="button"
+                      className="tool-button danger-tool icon-button"
+                      onClick={handleDelete}
+                      title="Eliminar"
+                      aria-label="Eliminar"
+                    >
+                      🗑
+                    </button>
+                  </div>
+                ) : null}
+
+                {documentState.elementos.map((element, index) => {
+                  const isSelected = element.id === selectedId
+                  const hiddenClass = element.visible ? '' : 'is-hidden'
+
+                  return (
+                    <Rnd
+                      key={element.id}
+                      bounds="parent"
+                      scale={zoom}
+                      size={{ width: element.width, height: element.height }}
+                      position={{ x: element.x, y: element.y }}
+                      enableResizing={element.tipo !== 'linea'}
+                      dragGrid={[4, 4]}
+                      resizeGrid={[4, 4]}
+                      onDragStop={(_, data) => {
+                        updateDocument(updateElement(documentState, element.id, { x: data.x, y: data.y }))
+                      }}
+                      onResizeStop={(_, __, ref, ___, position) => {
+                        updateDocument(
+                          updateElement(documentState, element.id, {
+                            width: Math.round(ref.offsetWidth),
+                            height: Math.round(ref.offsetHeight),
+                            x: position.x,
+                            y: position.y,
+                          }),
+                        )
+                      }}
+                      className={`draggable-element ${isSelected ? 'selected' : ''} ${hiddenClass}`}
+                      onMouseDown={() => setSelectedId(element.id)}
+                      onDoubleClick={() => {
+                        setSelectedId(element.id)
+                        handleEditText(element)
                       }}
                     >
-                      {element.tipo === 'linea' ? (
-                        <span className="line-shape" />
-                      ) : element.tipo === 'logo' ? (
-                        <div className="logo-box">
-                          {element.imageUrl ? (
-                            <img src={element.imageUrl} alt={element.nombre} />
-                          ) : (
-                            <span>{element.text || 'LOGO'}</span>
-                          )}
-                        </div>
-                      ) : (
-                        <>
-                          <span className="element-label">{getElementName(element.tipo)}</span>
-                          <span className="element-value">{getElementDisplayValue(element, sampleData)}</span>
-                        </>
-                      )}
-                    </div>
-                    {isSelected ? <span className="selection-tag">{index + 1}</span> : null}
-                  </Rnd>
-                )
-              })}
+                      <div
+                        className={`element-content type-${element.tipo}`}
+                        style={{
+                          color: element.color,
+                          fontSize: element.fontSize,
+                          fontWeight: element.fontWeight,
+                          fontStyle: element.fontStyle,
+                          textDecoration: element.underline ? 'underline' : 'none',
+                          fontFamily: element.fontFamily,
+                          textAlign: element.align,
+                          lineHeight: element.lineHeight,
+                        }}
+                      >
+                        {element.tipo === 'linea' ? (
+                          <span className="line-shape" />
+                        ) : element.tipo === 'logo' ? (
+                          <div className="logo-box">
+                            {element.imageUrl ? (
+                              <img src={element.imageUrl} alt={element.nombre} />
+                            ) : (
+                              <span>{element.text || 'LOGO'}</span>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <span className="element-label">{getElementName(element.tipo)}</span>
+                            <span className="element-value">{getElementDisplayValue(element, sampleData)}</span>
+                          </>
+                        )}
+                      </div>
+                      {isSelected ? <span className="selection-tag">{index + 1}</span> : null}
+                    </Rnd>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="zoom-controls">
+              <button type="button" className="ghost zoom-button" onClick={() => updateZoom(-0.1)}>
+                - Zoom -
+              </button>
+              <span className="zoom-label">{zoomLabel}</span>
+              <button type="button" className="ghost zoom-button" onClick={() => updateZoom(0.1)}>
+                + Zoom +
+              </button>
             </div>
           </div>
+
+          {showAdvancedInspector ? (
+            <aside className="advanced-inspector card">
+              <div className="card-head">
+                <h2>Propiedades avanzadas</h2>
+                <button type="button" className="ghost ghost-small" onClick={() => setShowAdvancedInspector(false)}>
+                  Cerrar
+                </button>
+              </div>
+              {selectedElement ? (
+                <div className="grid-2 inspector-grid">
+                  <div className="field">
+                    <label htmlFor="inspector-x">X</label>
+                    <input
+                      id="inspector-x"
+                      type="number"
+                      value={selectedElement.x}
+                      onChange={(event) => patchSelectedElement({ x: Number(event.target.value) })}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="inspector-y">Y</label>
+                    <input
+                      id="inspector-y"
+                      type="number"
+                      value={selectedElement.y}
+                      onChange={(event) => patchSelectedElement({ y: Number(event.target.value) })}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="inspector-width">Ancho</label>
+                    <input
+                      id="inspector-width"
+                      type="number"
+                      value={selectedElement.width}
+                      onChange={(event) => patchSelectedElement({ width: Number(event.target.value) })}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="inspector-height">Alto</label>
+                    <input
+                      id="inspector-height"
+                      type="number"
+                      value={selectedElement.height}
+                      onChange={(event) => patchSelectedElement({ height: Number(event.target.value) })}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="inspector-order">Orden</label>
+                    <input
+                      id="inspector-order"
+                      type="number"
+                      value={documentState.elementos.findIndex((element) => element.id === selectedElement.id) + 1}
+                      readOnly
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="inspector-lines">MaxLineas</label>
+                    <input
+                      id="inspector-lines"
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={selectedElement.maxLineas ?? 1}
+                      onChange={(event) => patchSelectedElement({ maxLineas: Number(event.target.value) })}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <p className="helper-text">Selecciona un elemento para ver sus propiedades avanzadas.</p>
+              )}
+            </aside>
+          ) : null}
         </section>
       </main>
     </div>

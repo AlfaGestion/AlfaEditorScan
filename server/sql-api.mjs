@@ -126,9 +126,8 @@ function getFixedText(element) {
 }
 
 function getSqlMaxLines(element) {
-  if (element.tipo === 'descripcion') return 2
-  if (element.tipo === 'textoFijo' || element.tipo === 'linea') return 1
-  return 1
+  const fallback = element.tipo === 'descripcion' ? 3 : element.tipo === 'textoFijo' ? 2 : 1
+  return Math.max(1, Math.round(Number(element.maxLineas ?? fallback) || fallback))
 }
 
 async function hasColumn(pool, tableName, columnName) {
@@ -174,6 +173,7 @@ function normalizeDocument(document) {
         imageUrl: typeof item?.imageUrl === 'string' ? item.imageUrl : '',
         lineHeight: toNumber(item?.lineHeight, 1.15),
         uppercase: item?.uppercase === true,
+        maxLineas: toNumber(item?.maxLineas, tipo === 'descripcion' ? 3 : tipo === 'textoFijo' ? 2 : 1),
       }
     }),
   }
