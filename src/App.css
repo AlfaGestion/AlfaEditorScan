@@ -130,8 +130,8 @@
 
 .workspace {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(300px, 340px) minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
 }
 
@@ -146,6 +146,8 @@
   position: sticky;
   top: 16px;
   align-self: start;
+  width: 100%;
+  max-width: 340px;
 }
 
 .card {
@@ -165,11 +167,36 @@
   margin-bottom: 14px;
 }
 
+.card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .card h2 {
   margin: 0;
   font-size: 1.02rem;
   line-height: 1.2;
   color: var(--text);
+}
+
+.sql-card {
+  gap: 12px;
+}
+
+.sql-card .card-head {
+  margin-bottom: 0;
+}
+
+.sql-card .card-head-actions {
+  align-items: flex-start;
+}
+
+.sql-card .ghost-small {
+  min-width: 110px;
+  justify-content: center;
 }
 
 .pill {
@@ -190,9 +217,18 @@
   color: #991b1b;
 }
 
+.pill-ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
 .pill-warn {
   background: #fef3c7;
   color: #92400e;
+}
+
+.status-chip {
+  gap: 6px;
 }
 
 .field {
@@ -206,6 +242,21 @@
   font-size: 0.84rem;
   color: var(--muted-strong);
   font-weight: 600;
+}
+
+.checkbox-field {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+.checkbox-field input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .grid-2 {
@@ -275,6 +326,44 @@ input[type='file'] {
   margin: 10px 0 0;
   color: var(--muted);
   font-size: 0.86rem;
+}
+
+.connection-editor {
+  display: grid;
+  gap: 0;
+  padding-top: 4px;
+  margin-top: 2px;
+  border-top: 1px solid var(--border);
+}
+
+.connection-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.connection-actions .ghost,
+.connection-actions .primary {
+  flex: 1 1 140px;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12);
+}
+
+.status-dot.is-online {
+  background: #22c55e;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
 }
 
 .palette {
@@ -480,6 +569,69 @@ input[type='file'] {
   min-width: 0;
 }
 
+.preview-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.preview-source-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.preview-source-pill {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.14), rgba(45, 212, 191, 0.12));
+  border: 1px solid rgba(37, 99, 235, 0.18);
+}
+
+.preview-note {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.preview-note.is-error {
+  color: #b91c1c;
+}
+
+.card-soft {
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.45));
+}
+
+.app-shell[data-theme='dark'] .card-soft {
+  background: linear-gradient(180deg, rgba(13, 20, 33, 0.88), rgba(13, 20, 33, 0.68));
+}
+
+.card-head.compact {
+  margin-bottom: 10px;
+}
+
+.card-head.compact h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.preview-manual-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.preview-manual .field {
+  margin-bottom: 0;
+}
+
+.preview-manual .field > span {
+  font-size: 0.8rem;
+  color: var(--muted-strong);
+  font-weight: 600;
+}
+
 .preview-header {
   display: flex;
   justify-content: space-between;
@@ -497,6 +649,13 @@ input[type='file'] {
 .preview-header h2 {
   margin: 4px 0 0;
   font-size: 1.15rem;
+}
+
+.preview-source-inline {
+  display: inline-flex;
+  margin-top: 4px;
+  font-size: 0.82rem;
+  color: var(--muted);
 }
 
 .preview-meta {
@@ -1007,7 +1166,7 @@ input[type='file'] {
 
 @media (max-width: 1400px) {
   .workspace {
-    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
   }
 }
 
@@ -1029,6 +1188,10 @@ input[type='file'] {
     width: 100%;
     justify-content: flex-start;
   }
+
+  .left-panel {
+    max-width: none;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1047,7 +1210,8 @@ input[type='file'] {
   }
 
   .palette,
-  .grid-2 {
+  .grid-2,
+  .preview-manual-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -6,33 +6,46 @@ cd /d "%~dp0"
 if not exist "dist\index.html" (
   echo Falta el build de produccion.
   echo Ejecuta make-release.bat en la PC de armado o copia la carpeta dist junto con este instalador.
-  exit /b 1
+  goto :fail
 )
 
 if not exist ".env.production" (
   echo Falta el archivo .env.production.
   echo Completa .env.production antes de continuar.
-  exit /b 1
+  goto :fail
 )
 
-where node >nul 2>nul
-if errorlevel 1 (
-  echo Node.js no esta instalado.
-  echo Instala Node.js 18 o superior y vuelve a ejecutar este archivo.
-  exit /b 1
+if not exist "node-runtime\node.exe" (
+  echo Falta el runtime portable de Node.
+  echo Volve a generar el release con make-release.bat.
+  goto :fail
 )
 
 if not exist "node_modules\" (
-  echo Instalando dependencias de produccion...
-  call npm ci --omit=dev --no-audit --no-fund
-  if errorlevel 1 (
-    echo No se pudieron instalar las dependencias.
-    exit /b 1
-  )
+  echo Falta la carpeta node_modules.
+  echo El release no esta completo.
+  goto :fail
 )
 
 echo Iniciando AlfaEditorScan en modo produccion...
 set "NODE_ENV=production"
-node server\sql-api.mjs
+echo Abrir en el navegador: http://127.0.0.1:%SQL_API_PORT%/
+echo.
+node-runtime\node.exe server\sql-api.mjs
+set "EXIT_CODE=%errorlevel%"
+echo.
+if not "%EXIT_CODE%"=="0" (
+  echo El servidor termino con codigo %EXIT_CODE%.
+  echo Revisa el mensaje anterior para ver la causa.
+  goto :fail
+)
+
+pause
+exit /b 0
 
 endlocal
+
+:fail
+echo.
+pause
+exit /b 1

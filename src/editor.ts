@@ -32,6 +32,8 @@ export interface LabelDocument {
   nombre: string
   anchoPapelMm: number
   altoPapelMm: number
+  activo: boolean
+  esPredeterminado: boolean
   elementos: EditorElement[]
 }
 
@@ -453,6 +455,8 @@ function createScaledDocument(format: PaperFormat): LabelDocument {
     nombre: format.nombre,
     anchoPapelMm: format.anchoPapelMm,
     altoPapelMm: format.altoPapelMm,
+    activo: true,
+    esPredeterminado: false,
     elementos: baseElements().map((element) => scaleElement(element, scaleX, scaleY)),
   }
 }
@@ -476,6 +480,8 @@ export function scaleDocumentToFormat(
     nombre: format.nombre,
     anchoPapelMm: format.anchoPapelMm,
     altoPapelMm: format.altoPapelMm,
+    activo: document.activo,
+    esPredeterminado: document.esPredeterminado,
     elementos: document.elementos.map((element) => scaleElement(element, scaleX, scaleY)),
   }
 }
@@ -803,6 +809,8 @@ export function parseDocumentJson(source: string, fallbackFormat: PaperFormat): 
       typeof parsed.anchoPapelMm === 'number' ? parsed.anchoPapelMm : fallbackFormat.anchoPapelMm,
     altoPapelMm:
       typeof parsed.altoPapelMm === 'number' ? parsed.altoPapelMm : fallbackFormat.altoPapelMm,
+    activo: typeof parsed.activo === 'boolean' ? parsed.activo : true,
+    esPredeterminado: typeof parsed.esPredeterminado === 'boolean' ? parsed.esPredeterminado : false,
     elementos,
   }
 }
@@ -866,6 +874,8 @@ export function buildSqlScript(document: LabelDocument): string {
   const jsonLiteral = escapeSqlLiteral(json)
   const reportName = escapeSqlLiteral(document.nombre)
   const reportCode = escapeSqlLiteral(document.codigo)
+  const reportActivo = document.activo ? 1 : 0
+  const reportEsPredeterminado = document.esPredeterminado ? 1 : 0
 
   const detailRows = document.elementos
     .map((element, index) => {
@@ -887,6 +897,8 @@ DECLARE @Nombre NVARCHAR(100) = N'${reportName}';
 DECLARE @Descripcion NVARCHAR(250) = N'EditorScan';
 DECLARE @AnchoPapelMm INT = ${document.anchoPapelMm};
 DECLARE @AltoMm INT = ${document.altoPapelMm};
+DECLARE @Activo BIT = ${reportActivo};
+DECLARE @EsPredeterminado BIT = ${reportEsPredeterminado};
 DECLARE @ReporteId INT;
 
 IF EXISTS (SELECT 1 FROM dbo.Scan_Reporte WHERE Codigo = @Codigo)
@@ -897,8 +909,8 @@ BEGIN
     Descripcion = @Descripcion,
     AnchoPapelMm = @AnchoPapelMm,
     AltoMm = @AltoMm,
-    Activo = 1,
-    EsPredeterminado = 0,
+    Activo = @Activo,
+    EsPredeterminado = @EsPredeterminado,
     FechaModificacion = GETDATE()
   WHERE Codigo = @Codigo;
 END
@@ -921,8 +933,8 @@ BEGIN
     @Descripcion,
     @AnchoPapelMm,
     @AltoMm,
-    1,
-    0,
+    @Activo,
+    @EsPredeterminado,
     GETDATE(),
     GETDATE()
   );
@@ -1008,6 +1020,8 @@ export interface SqlVerificationSnapshot {
   nombre: string
   anchoPapelMm: number
   altoMm: number | null
+  activo: boolean
+  esPredeterminado: boolean
   detalles: SqlVerificationDetail[]
 }
 
@@ -1187,6 +1201,8 @@ export function buildSqlVerificationSnapshot(document: LabelDocument): SqlVerifi
     nombre: layout.nombre,
     anchoPapelMm: layout.anchoPapelMm,
     altoMm: layout.altoPapelMm,
+    activo: document.activo,
+    esPredeterminado: document.esPredeterminado,
     detalles: layout.items.map((item) => ({
       tipoElemento: item.sqlDetalle.TipoElemento,
       campo: item.sqlDetalle.Campo,
@@ -1268,6 +1284,8 @@ export function parseAlfaScanDocumentJson(source: string, fallbackFormat: PaperF
         typeof parsed.anchoPapelMm === 'number' ? Number(parsed.anchoPapelMm) : fallbackFormat.anchoPapelMm,
       altoPapelMm:
         typeof parsed.altoPapelMm === 'number' ? Number(parsed.altoPapelMm) : fallbackFormat.altoPapelMm,
+      activo: typeof parsed.activo === 'boolean' ? Boolean(parsed.activo) : true,
+      esPredeterminado: typeof parsed.esPredeterminado === 'boolean' ? Boolean(parsed.esPredeterminado) : false,
       elementos,
     }
   }
@@ -1294,6 +1312,12 @@ export function parseAlfaScanDocumentJson(source: string, fallbackFormat: PaperF
       typeof (parsed as { altoPapelMm?: unknown }).altoPapelMm === 'number'
         ? Number((parsed as { altoPapelMm?: unknown }).altoPapelMm)
         : fallbackFormat.altoPapelMm,
+    activo:
+      typeof (parsed as { activo?: unknown }).activo === 'boolean' ? Boolean((parsed as { activo?: unknown }).activo) : true,
+    esPredeterminado:
+      typeof (parsed as { esPredeterminado?: unknown }).esPredeterminado === 'boolean'
+        ? Boolean((parsed as { esPredeterminado?: unknown }).esPredeterminado)
+        : false,
     elementos,
   }
 }
@@ -1304,6 +1328,8 @@ export function buildAlfaScanSqlScript(document: LabelDocument): string {
   const jsonLiteral = escapeSqlLiteral(json)
   const reportName = escapeSqlLiteral(layout.nombre)
   const reportCode = escapeSqlLiteral(layout.codigo)
+  const reportActivo = document.activo ? 1 : 0
+  const reportEsPredeterminado = document.esPredeterminado ? 1 : 0
   const detailRows = layout.items
     .map((item, index) => {
       const detalle = editorElementToSqlDetalle(item, index + 1)
@@ -1325,6 +1351,8 @@ DECLARE @Nombre NVARCHAR(100) = N'${reportName}';
 DECLARE @Descripcion NVARCHAR(250) = N'EditorScan';
 DECLARE @AnchoPapelMm INT = ${document.anchoPapelMm};
 DECLARE @AltoMm INT = ${document.altoPapelMm};
+DECLARE @Activo BIT = ${reportActivo};
+DECLARE @EsPredeterminado BIT = ${reportEsPredeterminado};
 DECLARE @ReporteId INT;
 
 IF EXISTS (SELECT 1 FROM dbo.Scan_Reporte WHERE Codigo = @Codigo)
@@ -1335,8 +1363,8 @@ BEGIN
     Descripcion = @Descripcion,
     AnchoPapelMm = @AnchoPapelMm,
     AltoMm = @AltoMm,
-    Activo = 1,
-    EsPredeterminado = 0,
+    Activo = @Activo,
+    EsPredeterminado = @EsPredeterminado,
     FechaModificacion = GETDATE()
   WHERE Codigo = @Codigo;
 END
@@ -1359,8 +1387,8 @@ BEGIN
     @Descripcion,
     @AnchoPapelMm,
     @AltoMm,
-    1,
-    0,
+    @Activo,
+    @EsPredeterminado,
     GETDATE(),
     GETDATE()
   );
@@ -1400,6 +1428,3 @@ ${detailRows};
 -- ${jsonLiteral}
 `
 }
-
-
-

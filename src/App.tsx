@@ -1,6 +1,21 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { Rnd } from 'react-rnd'
-import { AlignCenter, AlignLeft, AlignRight, Bold, CircleHelp, Copy, Eye, EyeOff, Italic, Plus, Trash2, Type } from 'lucide-react'
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  Bold,
+  ChevronDown,
+  ChevronUp,
+  CircleHelp,
+  Copy,
+  Eye,
+  EyeOff,
+  Italic,
+  Plus,
+  Trash2,
+  Type,
+} from 'lucide-react'
 import './App.css'
 import heroLogo from './assets/hero.png'
 import {
@@ -44,6 +59,24 @@ interface PersistedStateV2 {
   selectedIdsByFormat: Partial<Record<FormatCode, string>>
 }
 
+interface SqlConnectionConfig {
+  server: string
+  database: string
+  user: string
+  password: string
+  port: number
+  encrypt: boolean
+  trustServerCertificate: boolean
+}
+
+interface SqlConnectionStatus {
+  connected: boolean
+  message: string
+  databaseName?: string
+  serverName?: string
+  checkedAt?: string
+}
+
 interface LegacyPersistedState {
   document: LabelDocument
   selectedId: string
@@ -66,9 +99,18 @@ interface PreviewProduct {
   stock: string
 }
 
+interface PreviewManualFields {
+  companyName: string
+  description: string
+  price: string
+  internalCode: string
+  barcode: string
+  stock: string
+}
+
 const THEME_STORAGE_KEY = 'alfa-editor-scan:theme'
 
-const previewCatalog: PreviewProduct[] = [
+const fallbackPreviewCatalog: PreviewProduct[] = [
   {
     id: '10310',
     companyName: 'Nano Distribuciones',
@@ -108,6 +150,23 @@ function toPreviewSample(product: PreviewProduct): SampleData {
     stock: product.stock,
     date: new Intl.DateTimeFormat('es-AR').format(new Date()),
   }
+}
+
+function mergePreviewSample(product: PreviewProduct, manual: PreviewManualFields): SampleData {
+  const fallback = toPreviewSample(product)
+  return {
+    companyName: manual.companyName.trim() || fallback.companyName,
+    description: manual.description.trim() || fallback.description,
+    price: manual.price.trim() || fallback.price,
+    internalCode: manual.internalCode.trim() || fallback.internalCode,
+    barcode: manual.barcode.trim() || fallback.barcode,
+    stock: manual.stock.trim() || fallback.stock,
+    date: fallback.date,
+  }
+}
+
+function getPreviewTitle(product: PreviewProduct) {
+  return product.companyName.trim() || product.description.trim() || product.internalCode.trim() || product.id
 }
 
 function normalizeFormatCode(value: string): FormatCode {
@@ -168,6 +227,9 @@ function reportToDocument(report: SqlVerificationSnapshot, fallbackFormat: Forma
     nombre: typeof report.nombre === 'string' && report.nombre.trim() ? report.nombre : fallbackDocument.nombre,
     anchoPapelMm: typeof report.anchoPapelMm === 'number' ? Number(report.anchoPapelMm) : fallbackDocument.anchoPapelMm,
     altoPapelMm: typeof report.altoMm === 'number' ? Number(report.altoMm) : fallbackDocument.altoPapelMm,
+    activo: typeof report.activo === 'boolean' ? report.activo : fallbackDocument.activo,
+    esPredeterminado:
+      typeof report.esPredeterminado === 'boolean' ? report.esPredeterminado : fallbackDocument.esPredeterminado,
     elementos,
   }
 }
@@ -176,6 +238,8 @@ function normalizeStoredDocument(document: LabelDocument): LabelDocument {
   return {
     ...document,
     codigo: normalizeFormatCode(document.codigo),
+    activo: document.activo !== false,
+    esPredeterminado: document.esPredeterminado === true,
     elementos: (document.elementos || []).map((element) => ({
       ...element,
       fontStyle: element.fontStyle === 'italic' ? 'italic' : 'normal',
@@ -287,6 +351,18 @@ function formatSaveDebugLine(label: string, detail: unknown) {
 function App() {
   const stored = useMemo(() => readStoredState(), [])
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredTheme())
+  const [sqlConnectionConfig, setSqlConnectionConfig] = useState<SqlConnectionConfig>({
+    server: '',
+    database: '',
+    user: '',
+    password: '',
+    port: 1433,
+    encrypt: false,
+    trustServerCertificate: true,
+  })
+  const [sqlConnectionStatus, setSqlConnectionStatus] = useState<SqlConnectionStatus | null>(null)
+  const [sqlConnectionLoading, setSqlConnectionLoading] = useState(false)
+  const [sqlConnectionSaving, setSqlConnectionSaving] = useState(false)
   const [documentsByFormat, setDocumentsByFormat] = useState<Partial<Record<FormatCode, LabelDocument>>>(
     stored.documentsByFormat,
   )
@@ -307,10 +383,23 @@ function App() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [saveMessage, setSaveMessage] = useState('')
   const [showAdvancedInspector, setShowAdvancedInspector] = useState(false)
+  const [showSqlConnectionPanel, setShowSqlConnectionPanel] = useState(false)
   const [showAddElementMenu, setShowAddElementMenu] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('editor')
   const [previewQuery, setPreviewQuery] = useState('')
-  const [selectedPreviewId, setSelectedPreviewId] = useState(previewCatalog[0]?.id ?? '')
+  const [selectedPreviewId, setSelectedPreviewId] = useState('')
+  const [previewProducts, setPreviewProducts] = useState<PreviewProduct[]>(fallbackPreviewCatalog)
+  const [previewProductsLoading, setPreviewProductsLoading] = useState(false)
+  const [previewProductsError, setPreviewProductsError] = useState('')
+  const [previewProductsSource, setPreviewProductsSource] = useState('Muestra local')
+  const [previewManualFields, setPreviewManualFields] = useState<PreviewManualFields>({
+    companyName: '',
+    description: '',
+    price: '',
+    internalCode: '',
+    barcode: '',
+    stock: '',
+  })
   const addElementMenuRef = useRef<HTMLDivElement | null>(null)
   const formatLoadRequestRef = useRef(0)
 
@@ -321,17 +410,20 @@ function App() {
   const selectedElement = getElementById(documentState, effectiveSelectedId)
   const filteredPreviewProducts = useMemo(() => {
     const query = previewQuery.trim().toLowerCase()
-    if (!query) return previewCatalog
-    return previewCatalog.filter((product) => {
+    if (!query) return previewProducts
+    return previewProducts.filter((product) => {
       return [product.id, product.companyName, product.description, product.internalCode, product.barcode]
         .join(' ')
         .toLowerCase()
         .includes(query)
     })
-  }, [previewQuery])
+  }, [previewProducts, previewQuery])
   const selectedPreviewProduct =
-    filteredPreviewProducts.find((product) => product.id === selectedPreviewId) ?? filteredPreviewProducts[0] ?? previewCatalog[0]
-  const previewData = toPreviewSample(selectedPreviewProduct)
+    filteredPreviewProducts.find((product) => product.id === selectedPreviewId) ??
+    filteredPreviewProducts[0] ??
+    previewProducts[0] ??
+    fallbackPreviewCatalog[0]
+  const previewData = mergePreviewSample(selectedPreviewProduct, previewManualFields)
   const alfaScanLayout = useMemo(() => buildAlfaScanLayout(documentState, previewData), [documentState, previewData])
   const customFormatActive = normalizeFormatCode(documentState.codigo) === 'custom'
   const themeLabel = themeMode === 'dark' ? 'Modo oscuro' : 'Modo claro'
@@ -389,6 +481,121 @@ function App() {
     return () => window.removeEventListener('mousedown', handlePointerDown)
   }, [showAddElementMenu])
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadSqlConnection() {
+      setSqlConnectionLoading(true)
+      try {
+        const response = await fetch('/api/sql/connection')
+        const payload = (await response.json().catch(() => ({}))) as {
+          ok?: boolean
+          config?: Partial<SqlConnectionConfig>
+          connection?: SqlConnectionStatus
+          error?: string
+        }
+
+        if (cancelled) return
+
+        if (response.ok && payload.ok !== false && payload.config) {
+          setSqlConnectionConfig((current) => ({
+            server: payload.config?.server ?? current.server,
+            database: payload.config?.database ?? current.database,
+            user: payload.config?.user ?? current.user,
+            password: payload.config?.password && payload.config.password !== '********' ? payload.config.password : current.password,
+            port: Number(payload.config?.port ?? current.port) || current.port,
+            encrypt: Boolean(payload.config?.encrypt ?? current.encrypt),
+            trustServerCertificate:
+              payload.config?.trustServerCertificate === undefined
+                ? current.trustServerCertificate
+                : Boolean(payload.config.trustServerCertificate),
+          }))
+          setSqlConnectionStatus(payload.connection || null)
+          return
+        }
+
+        setSqlConnectionStatus({
+          connected: false,
+          message: payload.error || 'No se pudo leer la conexion.',
+        })
+      } catch (error) {
+        if (cancelled) return
+        setSqlConnectionStatus({
+          connected: false,
+          message: error instanceof Error ? error.message : 'No se pudo leer la conexion.',
+        })
+      } finally {
+        if (!cancelled) {
+          setSqlConnectionLoading(false)
+        }
+      }
+    }
+
+    loadSqlConnection()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadPreviewProducts() {
+      if (!sqlConnectionStatus?.connected) {
+        setPreviewProducts(fallbackPreviewCatalog)
+        setPreviewProductsSource('Muestra local')
+        setPreviewProductsError(sqlConnectionStatus ? 'La conexión SQL no está disponible.' : '')
+        return
+      }
+
+      setPreviewProductsLoading(true)
+      try {
+        const response = await fetch('/api/sql/articles?limit=100')
+        const payload = (await response.json().catch(() => ({}))) as {
+          ok?: boolean
+          articles?: PreviewProduct[]
+          source?: { schemaName?: string; tableName?: string }
+          message?: string
+          error?: string
+        }
+
+        if (cancelled) return
+
+        if (response.ok && payload.ok !== false && Array.isArray(payload.articles)) {
+          const articles = payload.articles.length > 0 ? payload.articles : fallbackPreviewCatalog
+          setPreviewProducts(articles)
+          setPreviewProductsSource(
+            payload.source?.schemaName && payload.source?.tableName
+              ? `${payload.source.schemaName}.${payload.source.tableName}`
+              : 'Base de datos',
+          )
+          setPreviewProductsError(payload.articles.length > 0 ? '' : payload.message || 'No se encontraron artículos.')
+          setSelectedPreviewId((current) => {
+            if (current && articles.some((article) => article.id === current)) return current
+            return articles[0]?.id ?? ''
+          })
+          return
+        }
+
+        setPreviewProducts(fallbackPreviewCatalog)
+        setPreviewProductsSource('Muestra local')
+        setPreviewProductsError(payload.error || payload.message || 'No se pudieron cargar los artículos.')
+      } catch (error) {
+        if (cancelled) return
+        setPreviewProducts(fallbackPreviewCatalog)
+        setPreviewProductsSource('Muestra local')
+        setPreviewProductsError(error instanceof Error ? error.message : 'No se pudieron cargar los artículos.')
+      } finally {
+        if (!cancelled) setPreviewProductsLoading(false)
+      }
+    }
+
+    loadPreviewProducts()
+    return () => {
+      cancelled = true
+    }
+  }, [sqlConnectionStatus?.connected, sqlConnectionStatus?.checkedAt])
+
   function notify(kind: ToastKind, message: string) {
     setToast({ kind, message })
   }
@@ -396,6 +603,98 @@ function App() {
   function pushSaveDebug(label: string, detail: unknown) {
     const line = formatSaveDebugLine(label, detail)
     console.error(line, detail)
+  }
+
+  async function refreshSqlConnection() {
+    setSqlConnectionLoading(true)
+    try {
+      const response = await fetch('/api/sql/connection')
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean
+        config?: Partial<SqlConnectionConfig>
+        connection?: SqlConnectionStatus
+        error?: string
+      }
+
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || 'No se pudo leer la conexión SQL.')
+      }
+
+      if (payload.config) {
+        setSqlConnectionConfig((current) => ({
+          server: payload.config?.server ?? current.server,
+          database: payload.config?.database ?? current.database,
+          user: payload.config?.user ?? current.user,
+          password: payload.config?.password && payload.config.password !== '********' ? payload.config.password : current.password,
+          port: Number(payload.config?.port ?? current.port) || current.port,
+          encrypt: Boolean(payload.config?.encrypt ?? current.encrypt),
+          trustServerCertificate:
+            payload.config?.trustServerCertificate === undefined
+              ? current.trustServerCertificate
+              : Boolean(payload.config.trustServerCertificate),
+        }))
+      }
+      setSqlConnectionStatus(payload.connection || null)
+      notify('success', payload.connection?.connected ? 'Conexión SQL OK' : 'Configuración cargada')
+    } catch (error) {
+      setSqlConnectionStatus({
+        connected: false,
+        message: error instanceof Error ? error.message : 'No se pudo leer la conexión SQL.',
+      })
+      notify('error', error instanceof Error ? error.message : 'No se pudo leer la conexión SQL.')
+    } finally {
+      setSqlConnectionLoading(false)
+    }
+  }
+
+  async function saveSqlConnection() {
+    setSqlConnectionSaving(true)
+    try {
+      const response = await fetch('/api/sql/connection', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          config: sqlConnectionConfig,
+        }),
+      })
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean
+        config?: Partial<SqlConnectionConfig>
+        connection?: SqlConnectionStatus
+        error?: string
+      }
+
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || 'No se pudo guardar la conexión SQL.')
+      }
+
+      if (payload.config) {
+        setSqlConnectionConfig((current) => ({
+          server: payload.config?.server ?? current.server,
+          database: payload.config?.database ?? current.database,
+          user: payload.config?.user ?? current.user,
+          password: current.password,
+          port: Number(payload.config?.port ?? current.port) || current.port,
+          encrypt: Boolean(payload.config?.encrypt ?? current.encrypt),
+          trustServerCertificate:
+            payload.config?.trustServerCertificate === undefined
+              ? current.trustServerCertificate
+              : Boolean(payload.config.trustServerCertificate),
+        }))
+      }
+      setSqlConnectionStatus(payload.connection || null)
+      notify('success', payload.connection?.connected ? 'Conexión guardada y probada' : 'Conexión guardada')
+    } catch (error) {
+      setSqlConnectionStatus({
+        connected: false,
+        message: error instanceof Error ? error.message : 'No se pudo guardar la conexión SQL.',
+      })
+      notify('error', error instanceof Error ? error.message : 'No se pudo guardar la conexión SQL.')
+    } finally {
+      setSqlConnectionSaving(false)
+    }
   }
 
   function updateDocument(next: LabelDocument) {
@@ -490,7 +789,7 @@ function App() {
     updateDocument({
       ...documentState,
       codigo: format.codigo,
-      nombre: format.nombre,
+      nombre: documentState.nombre,
       anchoPapelMm: safeWidth,
       altoPapelMm: safeHeight,
     })
@@ -571,6 +870,10 @@ function App() {
       pushMismatch('anchoPapelMm', expected.anchoPapelMm, actual.anchoPapelMm)
     }
     if (expected.altoMm !== actual.altoMm) pushMismatch('altoMm', expected.altoMm, actual.altoMm)
+    if (expected.activo !== actual.activo) pushMismatch('activo', expected.activo, actual.activo)
+    if (expected.esPredeterminado !== actual.esPredeterminado) {
+      pushMismatch('esPredeterminado', expected.esPredeterminado, actual.esPredeterminado)
+    }
     if (expected.detalles.length !== actual.detalles.length) {
       pushMismatch('detalles.length', expected.detalles.length, actual.detalles.length)
     }
@@ -939,9 +1242,136 @@ function App() {
         </div>
       </header>
 
-      {viewMode === 'editor' ? (
+        {viewMode === 'editor' ? (
         <main className="workspace">
-          <aside className="panel left-panel">
+      <aside className="panel left-panel">
+          <section className={`card sql-card ${showSqlConnectionPanel ? 'is-open' : 'is-closed'}`}>
+            <div className="card-head">
+              <div>
+                <h2>Base de datos</h2>
+              </div>
+              <div className="card-head-actions">
+                <span className={`pill status-chip ${sqlConnectionStatus?.connected ? 'pill-ok' : 'pill-error'}`}>
+                  <span className={`status-dot ${sqlConnectionStatus?.connected ? 'is-online' : ''}`} />
+                  {sqlConnectionStatus?.connected ? 'Conectado' : sqlConnectionLoading ? 'Cargando...' : 'Desconectado'}
+                </span>
+                <button
+                  className="ghost ghost-small"
+                  type="button"
+                  onClick={() => setShowSqlConnectionPanel((current) => !current)}
+                  aria-expanded={showSqlConnectionPanel}
+                >
+                  {showSqlConnectionPanel ? <ChevronUp size={16} strokeWidth={2.3} /> : <ChevronDown size={16} strokeWidth={2.3} />}
+                  <span>{showSqlConnectionPanel ? 'Ocultar' : 'Configurar'}</span>
+                </button>
+              </div>
+            </div>
+
+            {showSqlConnectionPanel ? (
+              <div className="connection-editor">
+                <div className="field">
+                  <label htmlFor="sql-server">Servidor</label>
+                  <input
+                    id="sql-server"
+                    type="text"
+                    value={sqlConnectionConfig.server}
+                    onChange={(event) => setSqlConnectionConfig((current) => ({ ...current, server: event.target.value }))}
+                    placeholder="localhost\\SQLEXPRESS"
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="sql-database">Base de datos</label>
+                  <input
+                    id="sql-database"
+                    type="text"
+                    value={sqlConnectionConfig.database}
+                    onChange={(event) => setSqlConnectionConfig((current) => ({ ...current, database: event.target.value }))}
+                    placeholder="NANODISTRI"
+                  />
+                </div>
+
+                <div className="grid-2">
+                  <div className="field">
+                    <label htmlFor="sql-user">Usuario</label>
+                    <input
+                      id="sql-user"
+                      type="text"
+                      value={sqlConnectionConfig.user}
+                      onChange={(event) => setSqlConnectionConfig((current) => ({ ...current, user: event.target.value }))}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="sql-port">Puerto</label>
+                    <input
+                      id="sql-port"
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={sqlConnectionConfig.port}
+                      onChange={(event) =>
+                        setSqlConnectionConfig((current) => ({
+                          ...current,
+                          port: Number(event.target.value) || 1433,
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="sql-password">Contraseña</label>
+                  <input
+                    id="sql-password"
+                    type="password"
+                    value={sqlConnectionConfig.password}
+                    onChange={(event) => setSqlConnectionConfig((current) => ({ ...current, password: event.target.value }))}
+                    placeholder="••••••••"
+                  />
+                </div>
+
+                <div className="grid-2">
+                  <label className="field checkbox-field" htmlFor="sql-encrypt">
+                    <span>Encrypt</span>
+                    <input
+                      id="sql-encrypt"
+                      type="checkbox"
+                      checked={sqlConnectionConfig.encrypt}
+                      onChange={(event) =>
+                        setSqlConnectionConfig((current) => ({ ...current, encrypt: event.target.checked }))
+                      }
+                    />
+                  </label>
+                  <label className="field checkbox-field" htmlFor="sql-trust">
+                    <span>Trust cert</span>
+                    <input
+                      id="sql-trust"
+                      type="checkbox"
+                      checked={sqlConnectionConfig.trustServerCertificate}
+                      onChange={(event) =>
+                        setSqlConnectionConfig((current) => ({
+                          ...current,
+                          trustServerCertificate: event.target.checked,
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+
+                <div className="connection-actions">
+                  <button className="ghost" type="button" onClick={refreshSqlConnection} disabled={sqlConnectionLoading || sqlConnectionSaving}>
+                    Probar
+                  </button>
+                  <button className="primary" type="button" onClick={saveSqlConnection} disabled={sqlConnectionLoading || sqlConnectionSaving}>
+                    {sqlConnectionSaving ? 'Guardando...' : 'Guardar conexión'}
+                  </button>
+                </div>
+
+                <p className="helper-text">La conexión queda guardada en `sql-connection.json` junto a la aplicación.</p>
+              </div>
+            ) : null}
+          </section>
+
           <section className="card">
             <div className="card-head">
               <h2>Formato</h2>
@@ -962,6 +1392,17 @@ function App() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="field">
+              <label htmlFor="sheet-name">Nombre de la planilla</label>
+              <input
+                id="sheet-name"
+                type="text"
+                maxLength={100}
+                value={documentState.nombre}
+                onChange={(event) => updateDocument({ ...documentState, nombre: event.target.value })}
+              />
             </div>
 
             <div className="grid-2">
@@ -989,6 +1430,26 @@ function App() {
                   disabled={!customFormatActive}
                 />
               </div>
+            </div>
+            <div className="grid-2">
+              <label className="field checkbox-field" htmlFor="sheet-active">
+                <span>Activo</span>
+                <input
+                  id="sheet-active"
+                  type="checkbox"
+                  checked={documentState.activo}
+                  onChange={(event) => updateDocument({ ...documentState, activo: event.target.checked })}
+                />
+              </label>
+              <label className="field checkbox-field" htmlFor="sheet-default">
+                <span>Predeterminado</span>
+                <input
+                  id="sheet-default"
+                  type="checkbox"
+                  checked={documentState.esPredeterminado}
+                  onChange={(event) => updateDocument({ ...documentState, esPredeterminado: event.target.checked })}
+                />
+              </label>
             </div>
               <p className="helper-text">1 mm = 4 px. El canvas usa el mismo modelo visual que la vista previa.</p>
           </section>
@@ -1322,6 +1783,73 @@ function App() {
                 <h2>Buscar producto</h2>
                 <span className="pill">{filteredPreviewProducts.length}</span>
               </div>
+              <div className="preview-source-row">
+                <span className="pill preview-source-pill">{previewProductsSource}</span>
+                {previewProductsLoading ? <span className="preview-note">Cargando artículos...</span> : null}
+                {previewProductsError ? <span className="preview-note is-error">{previewProductsError}</span> : null}
+              </div>
+              <section className="preview-manual card-soft">
+                <div className="card-head compact">
+                  <h3>Campos manuales</h3>
+                  <span className="pill">Opcional</span>
+                </div>
+                <div className="preview-manual-grid">
+                  <label className="field">
+                    <span>Empresa</span>
+                    <input
+                      type="text"
+                      value={previewManualFields.companyName}
+                      onChange={(event) => setPreviewManualFields((current) => ({ ...current, companyName: event.target.value }))}
+                      placeholder="Escribir otro valor"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Descripción</span>
+                    <input
+                      type="text"
+                      value={previewManualFields.description}
+                      onChange={(event) => setPreviewManualFields((current) => ({ ...current, description: event.target.value }))}
+                      placeholder="Escribir otro valor"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Precio</span>
+                    <input
+                      type="text"
+                      value={previewManualFields.price}
+                      onChange={(event) => setPreviewManualFields((current) => ({ ...current, price: event.target.value }))}
+                      placeholder="Escribir otro valor"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Código artículo</span>
+                    <input
+                      type="text"
+                      value={previewManualFields.internalCode}
+                      onChange={(event) => setPreviewManualFields((current) => ({ ...current, internalCode: event.target.value }))}
+                      placeholder="Escribir otro valor"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Código barra</span>
+                    <input
+                      type="text"
+                      value={previewManualFields.barcode}
+                      onChange={(event) => setPreviewManualFields((current) => ({ ...current, barcode: event.target.value }))}
+                      placeholder="Escribir otro valor"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Stock</span>
+                    <input
+                      type="text"
+                      value={previewManualFields.stock}
+                      onChange={(event) => setPreviewManualFields((current) => ({ ...current, stock: event.target.value }))}
+                      placeholder="Escribir otro valor"
+                    />
+                  </label>
+                </div>
+              </section>
               <div className="field">
                 <label htmlFor="preview-search">Código, barra o descripción</label>
                 <input
@@ -1341,7 +1869,7 @@ function App() {
                     onClick={() => setSelectedPreviewId(product.id)}
                   >
                     <strong>{product.description}</strong>
-                    <span>{product.companyName}</span>
+                    <span>{getPreviewTitle(product)}</span>
                     <small>
                       {product.internalCode} · {product.barcode}
                     </small>
@@ -1350,11 +1878,12 @@ function App() {
               </div>
             </div>
 
-            <div className="preview-stage">
+              <div className="preview-stage">
               <div className="preview-header">
                 <div>
                   <span className="pill preview-badge">Previsualización</span>
-                  <h2>{selectedPreviewProduct.companyName}</h2>
+                  <h2>{getPreviewTitle(selectedPreviewProduct)}</h2>
+                  <span className="preview-source-inline">{previewProductsSource}</span>
                 </div>
                 <div className="preview-meta">
                   <span className="pill">{selectedPreviewProduct.internalCode}</span>

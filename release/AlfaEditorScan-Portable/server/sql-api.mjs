@@ -1,5 +1,6 @@
 ﻿import http from 'node:http'
 import fs from 'node:fs/promises'
+import fsSync from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
@@ -17,15 +18,10 @@ for (const envFile of envFiles) {
 dotenv.config()
 
 const PORT = Number(process.env.SQL_API_PORT || 3001)
-const SQL_SERVER = process.env.SQL_SERVER || ''
-const SQL_DATABASE = process.env.SQL_DATABASE || ''
-const SQL_USER = process.env.SQL_USER || ''
-const SQL_PASSWORD = process.env.SQL_PASSWORD || ''
-const SQL_PORT = Number(process.env.SQL_PORT || 1433)
-const SQL_ENCRYPT = String(process.env.SQL_ENCRYPT || 'false').toLowerCase() === 'true'
-const SQL_TRUST_SERVER_CERTIFICATE =
-  String(process.env.SQL_TRUST_SERVER_CERTIFICATE || 'true').toLowerCase() === 'true'
 const DIST_DIR = path.resolve(__dirname, '..', 'dist')
+const SQL_CONFIG_FILE = path.resolve(__dirname, '..', 'sql-connection.json')
+const LOG_DIR = path.resolve(__dirname, '..', 'logs')
+const LOG_FILE = path.join(LOG_DIR, 'sql-api.log')
 const INDEX_FILE = path.join(DIST_DIR, 'index.html')
 const MIME_TYPES = new Map([
   ['.html', 'text/html; charset=utf-8'],
@@ -43,12 +39,123 @@ const MIME_TYPES = new Map([
 
 function log(message, detail) {
   const timestamp = new Date().toISOString()
+  const serializedDetail =
+    detail === undefined
+      ? ''
+      : ` ${
+          typeof detail === 'string'
+            ? detail
+            : (() => {
+                try {
+                  return JSON.stringify(detail)
+                } catch {
+                  return String(detail)
+                }
+              })()
+        }`
+  const line = `[${timestamp}] ${message}${serializedDetail}`
+  try {
+    fsSync.mkdirSync(LOG_DIR, { recursive: true })
+    fsSync.appendFileSync(LOG_FILE, `${line}\n`, 'utf8')
+  } catch (error) {
+    console.error(`[${timestamp}] No se pudo escribir el log`, error instanceof Error ? error.message : error)
+  }
   if (detail !== undefined) {
     console.log(`[${timestamp}] ${message}`, detail)
   } else {
     console.log(`[${timestamp}] ${message}`)
   }
 }
+
+function toBoolean(value, fallback = false) {
+  if (value === true || value === false) return value
+  if (value == null || value === '') return fallback
+  const normalized = String(value).trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on', 'si', 'sí'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return fallback
+}
+
+function normalizeSqlConnectionConfig(config = {}) {
+  return {
+    server: String(config.server ?? process.env.SQL_SERVER ?? '').trim(),
+    database: String(config.database ?? process.env.SQL_DATABASE ?? '').trim(),
+    user: String(config.user ?? process.env.SQL_USER ?? '').trim(),
+    password: String(config.password ?? process.env.SQL_PASSWORD ?? ''),
+    port: Number.isFinite(Number(config.port)) ? Number(config.port) : Number(process.env.SQL_PORT || 1433),
+    encrypt: toBoolean(config.encrypt ?? process.env.SQL_ENCRYPT, String(process.env.SQL_ENCRYPT || 'false').toLowerCase() === 'true'),
+    trustServerCertificate: toBoolean(
+      config.trustServerCertificate ?? process.env.SQL_TRUST_SERVER_CERTIFICATE,
+      String(process.env.SQL_TRUST_SERVER_CERTIFICATE || 'true').toLowerCase() === 'true',
+    ),
+  }
+}
+
+function readSqlConnectionConfigFromDisk() {
+  try {
+    if (!fsSync.existsSync(SQL_CONFIG_FILE)) return null
+    const raw = fsSync.readFileSync(SQL_CONFIG_FILE, 'utf8')
+    if (!raw.trim()) return null
+    return normalizeSqlConnectionConfig(JSON.parse(raw))
+  } catch (error) {
+    log('SQL config read failed', error instanceof Error ? error.message : error)
+    return null
+  }
+}
+
+function saveSqlConnectionConfigToDisk(config) {
+  fsSync.mkdirSync(path.dirname(SQL_CONFIG_FILE), { recursive: true })
+  fsSync.writeFileSync(SQL_CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+}
+
+const sqlConnectionConfig = readSqlConnectionConfigFromDisk() || normalizeSqlConnectionConfig()
+
+function getSqlConnectionConfig() {
+  return { ...sqlConnectionConfig }
+}
+
+function getPublicSqlConnectionConfig() {
+  return { ...sqlConnectionConfig }
+}
+
+function updateSqlConnectionConfig(nextConfig) {
+  const normalized = normalizeSqlConnectionConfig(nextConfig)
+  sqlConnectionConfig.server = normalized.server
+  sqlConnectionConfig.database = normalized.database
+  sqlConnectionConfig.user = normalized.user
+  sqlConnectionConfig.password = normalized.password
+  sqlConnectionConfig.port = normalized.port
+  sqlConnectionConfig.encrypt = normalized.encrypt
+  sqlConnectionConfig.trustServerCertificate = normalized.trustServerCertificate
+  saveSqlConnectionConfigToDisk(sqlConnectionConfig)
+  return getPublicSqlConnectionConfig()
+}
+
+function buildSqlConnectionOptions(config = sqlConnectionConfig) {
+  return {
+    server: config.server,
+    database: config.database,
+    user: config.user,
+    password: config.password,
+    port: config.port,
+    options: {
+      encrypt: config.encrypt,
+      trustServerCertificate: config.trustServerCertificate,
+    },
+  }
+}
+
+function isSqlConnectionConfigured(config = sqlConnectionConfig) {
+  return Boolean(config.server && config.database && config.user && config.password)
+}
+
+process.on('uncaughtException', (error) => {
+  log('Uncaught exception', error instanceof Error ? { message: error.message, stack: error.stack } : error)
+})
+
+process.on('unhandledRejection', (reason) => {
+  log('Unhandled rejection', reason instanceof Error ? { message: reason.message, stack: reason.stack } : reason)
+})
 function json(res, statusCode, payload) {
   res.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
@@ -150,6 +257,42 @@ function readBody(req) {
     })
     req.on('error', reject)
   })
+}
+
+function createSqlPool(config = sqlConnectionConfig) {
+  return new sql.ConnectionPool(buildSqlConnectionOptions(config))
+}
+
+async function testSqlConnection(config = sqlConnectionConfig) {
+  if (!isSqlConnectionConfigured(config)) {
+    return {
+      connected: false,
+      message: 'Faltan datos de conexión.',
+      checkedAt: new Date().toISOString(),
+    }
+  }
+
+  const pool = createSqlPool(config)
+  try {
+    await pool.connect()
+    const result = await pool.request().query('SELECT DB_NAME() AS databaseName, @@SERVERNAME AS serverName;')
+    const row = result.recordset?.[0] || {}
+    return {
+      connected: true,
+      message: 'Conectado correctamente.',
+      databaseName: typeof row.databaseName === 'string' ? row.databaseName : config.database,
+      serverName: typeof row.serverName === 'string' ? row.serverName : config.server,
+      checkedAt: new Date().toISOString(),
+    }
+  } catch (error) {
+    return {
+      connected: false,
+      message: error instanceof Error ? error.message : 'No se pudo conectar.',
+      checkedAt: new Date().toISOString(),
+    }
+  } finally {
+    await pool.close().catch(() => {})
+  }
 }
 
 function toNumber(value, fallback = 0) {
@@ -287,6 +430,8 @@ function normalizeDocument(document) {
     nombre: typeof document.nombre === 'string' ? document.nombre : 'Gondola',
     anchoPapelMm: toNumber(document.anchoPapelMm, 80),
     altoPapelMm: toNumber(document.altoPapelMm, 60),
+    activo: document.activo !== false,
+    esPredeterminado: document.esPredeterminado === true,
     elementos: elementos.map((item, index) => {
       const tipo = isElementType(item?.tipo) ? item.tipo : 'textoFijo'
       return {
@@ -359,6 +504,8 @@ function compareVerificationSnapshots(expected, actual) {
   compareField('nombre', expected.nombre, actual.nombre)
   compareField('anchoPapelMm', expected.anchoPapelMm, actual.anchoPapelMm)
   compareField('altoMm', expected.altoMm, actual.altoMm)
+  compareField('activo', expected.activo, actual.activo)
+  compareField('esPredeterminado', expected.esPredeterminado, actual.esPredeterminado)
   compareField('detalles.length', expected.detalles.length, actual.detalles.length)
 
   const count = Math.min(expected.detalles.length, actual.detalles.length)
@@ -413,24 +560,15 @@ function rowToVerificationDetail(row, index) {
 }
 
 async function loadReportSnapshotByCodigo(codigo) {
-  if (!SQL_SERVER || !SQL_DATABASE || !SQL_USER || !SQL_PASSWORD) {
-    throw new Error('Faltan variables de entorno SQL. Revisar .env.local.')
+  if (!isSqlConnectionConfigured()) {
+    throw new Error('Faltan datos de conexion SQL. Revisar sql-connection.json o .env.')
   }
 
   const normalizedCodigo = normalizeReportCode(codigo)
-  const pool = await sql.connect({
-    server: SQL_SERVER,
-    database: SQL_DATABASE,
-    user: SQL_USER,
-    password: SQL_PASSWORD,
-    port: SQL_PORT,
-    options: {
-      encrypt: SQL_ENCRYPT,
-      trustServerCertificate: SQL_TRUST_SERVER_CERTIFICATE,
-    },
-  })
+  const pool = createSqlPool()
 
   try {
+    await pool.connect()
     const reportResult = await pool
       .request()
       .input('Codigo', sql.NVarChar(50), normalizedCodigo)
@@ -439,6 +577,8 @@ async function loadReportSnapshotByCodigo(codigo) {
           IdReporte,
           Codigo,
           Nombre,
+          Activo,
+          EsPredeterminado,
           AnchoPapelMm,
           AltoMm
         FROM dbo.Scan_Reporte
@@ -483,6 +623,8 @@ async function loadReportSnapshotByCodigo(codigo) {
     return {
       codigo: normalizeReportCode(report.Codigo),
       nombre: typeof report.Nombre === 'string' ? report.Nombre : 'Gondola',
+      activo: Boolean(report.Activo),
+      esPredeterminado: Boolean(report.EsPredeterminado),
       anchoPapelMm: toNumber(report.AnchoPapelMm, 80),
       altoMm: toNumber(report.AltoMm, 60),
       detalles: details,
@@ -578,8 +720,8 @@ async function insertDetailRows(transaction, document, reportId) {
 }
 
 async function saveDocumentToSqlServer(document) {
-  if (!SQL_SERVER || !SQL_DATABASE || !SQL_USER || !SQL_PASSWORD) {
-    throw new Error('Faltan variables de entorno SQL. Revisar .env.local.')
+  if (!isSqlConnectionConfigured()) {
+    throw new Error('Faltan datos de conexion SQL. Revisar sql-connection.json o .env.')
   }
 
   const normalized = normalizeDocument(document)
@@ -589,18 +731,9 @@ async function saveDocumentToSqlServer(document) {
     elementos: normalized.elementos.length,
   })
 
-  const pool = await sql.connect({
-    server: SQL_SERVER,
-    database: SQL_DATABASE,
-    user: SQL_USER,
-    password: SQL_PASSWORD,
-    port: SQL_PORT,
-    options: {
-      encrypt: SQL_ENCRYPT,
-      trustServerCertificate: SQL_TRUST_SERVER_CERTIFICATE,
-    },
-  })
+  const pool = createSqlPool()
 
+  await pool.connect()
   const transaction = new sql.Transaction(pool)
   await transaction.begin()
 
@@ -611,6 +744,8 @@ async function saveDocumentToSqlServer(document) {
     request.input('Descripcion', sql.NVarChar(250), `Layout generado desde EditorScan`)
     request.input('AnchoPapelMm', sql.Int, normalized.anchoPapelMm)
     request.input('AltoMm', sql.Int, normalized.altoPapelMm)
+    request.input('Activo', sql.Bit, normalized.activo ? 1 : 0)
+    request.input('EsPredeterminado', sql.Bit, normalized.esPredeterminado ? 1 : 0)
 
     const result = await request.query(`
       IF EXISTS (SELECT 1 FROM dbo.Scan_Reporte WHERE Codigo = @Codigo)
@@ -621,8 +756,8 @@ async function saveDocumentToSqlServer(document) {
           Descripcion = @Descripcion,
           AnchoPapelMm = @AnchoPapelMm,
           AltoMm = @AltoMm,
-          Activo = 1,
-          EsPredeterminado = 0,
+          Activo = @Activo,
+          EsPredeterminado = @EsPredeterminado,
           FechaModificacion = GETDATE()
         WHERE Codigo = @Codigo;
       END
@@ -645,8 +780,8 @@ async function saveDocumentToSqlServer(document) {
           @Descripcion,
           @AnchoPapelMm,
           @AltoMm,
-          1,
-          0,
+          @Activo,
+          @EsPredeterminado,
           GETDATE(),
           GETDATE()
         );
@@ -735,7 +870,45 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
 
   if (req.method === 'GET' && url.pathname === '/api/health') {
-    json(res, 200, { ok: true })
+    const connection = await testSqlConnection()
+    json(res, 200, {
+      ok: true,
+      connection: {
+        ...connection,
+        config: getPublicSqlConnectionConfig(),
+      },
+    })
+    return
+  }
+
+  if (url.pathname === '/api/sql/connection' && req.method === 'GET') {
+    const connection = await testSqlConnection()
+    json(res, 200, {
+      ok: true,
+      config: getPublicSqlConnectionConfig(),
+      connection,
+    })
+    return
+  }
+
+  if (url.pathname === '/api/sql/connection' && req.method === 'POST') {
+    try {
+      const body = await readBody(req)
+      const nextConfig = body?.config && typeof body.config === 'object' ? body.config : body
+      const publicConfig = updateSqlConnectionConfig(nextConfig)
+      const connection = await testSqlConnection()
+      json(res, 200, {
+        ok: true,
+        config: publicConfig,
+        connection,
+      })
+    } catch (error) {
+      log('POST /api/sql/connection failed', error instanceof Error ? error.message : error)
+      json(res, 500, {
+        ok: false,
+        ...errorPayload(error),
+      })
+    }
     return
   }
 
