@@ -1,0 +1,19 @@
+AlfaEditorScan - Entrega al cliente
+
+Contenido del paquete:
+- Iniciar-AlfaEditorScan-App.cmd
+- Instalar-AlfaEditorScan.cmd
+- dist\
+- server\
+- node-runtime\
+- node_modules\
+- .env.production
+
+Uso:
+1. Copiar la carpeta AlfaEditorScan-Portable al equipo del cliente.
+2. Ejecutar Iniciar-AlfaEditorScan-App.cmd.
+3. Si falta algo, ejecutar Instalar-AlfaEditorScan.cmd.
+
+Requisitos del cliente:
+- Windows con Edge o Chrome instalado.
+- Acceso a la base SQL configurada en .env.production o sql-connection.json.

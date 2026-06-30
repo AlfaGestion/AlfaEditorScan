@@ -19,6 +19,10 @@ CREATE TABLE dbo.Scan_Reporte (
   Descripcion NVARCHAR(250) NULL,
   AnchoPapelMm INT NOT NULL CONSTRAINT DF_Scan_Reporte_AnchoPapelMm DEFAULT ((80)),
   AltoMm INT NULL,
+  MargenIzq INT NOT NULL CONSTRAINT DF_Scan_Reporte_MargenIzq DEFAULT ((0)),
+  MargenSub INT NOT NULL CONSTRAINT DF_Scan_Reporte_MargenSub DEFAULT ((0)),
+  MargenDer INT NOT NULL CONSTRAINT DF_Scan_Reporte_MargenDer DEFAULT ((0)),
+  MargenInf INT NOT NULL CONSTRAINT DF_Scan_Reporte_MargenInf DEFAULT ((0)),
   Activo BIT NOT NULL CONSTRAINT DF_Scan_Reporte_Activo DEFAULT ((1)),
   EsPredeterminado BIT NOT NULL CONSTRAINT DF_Scan_Reporte_EsPredeterminado DEFAULT ((0)),
   FechaAlta DATETIME NOT NULL CONSTRAINT DF_Scan_Reporte_FechaAlta DEFAULT (GETDATE()),
@@ -65,16 +69,20 @@ INSERT INTO dbo.Scan_Reporte (
   Descripcion,
   AnchoPapelMm,
   AltoMm,
+  MargenIzq,
+  MargenSub,
+  MargenDer,
+  MargenInf,
   Activo,
   EsPredeterminado,
   FechaAlta,
   FechaModificacion
 )
 VALUES
-  (1, N'gondola', N'Góndola', N'Layout generado desde EditorScan', 80, 60, 1, 0, CONVERT(datetime, '2026-06-09T17:44:03.473', 126), CONVERT(datetime, '2026-06-10T13:49:52.567', 126)),
-  (2, N'product', N'Producto', N'Layout generado desde EditorScan', 80, 60, 1, 0, CONVERT(datetime, '2026-06-09T17:44:03.473', 126), CONVERT(datetime, '2026-06-10T13:23:12.040', 126)),
-  (3, N'small', N'Chico', N'Etiqueta chica 80mm', 80, NULL, 1, 0, CONVERT(datetime, '2026-06-09T17:44:03.473', 126), NULL),
-  (4, N'custom', N'Personalizado', N'Formato personalizado 80mm', 80, NULL, 1, 0, CONVERT(datetime, '2026-06-09T17:44:03.473', 126), NULL);
+  (1, N'gondola', N'Gondola', N'Layout generado desde EditorScan', 80, 60, 0, 0, 0, 0, 1, 0, CONVERT(datetime, '2026-06-09T17:44:03.473', 126), CONVERT(datetime, '2026-06-10T13:49:52.567', 126)),
+  (2, N'product', N'Producto', N'Layout generado desde EditorScan', 80, 60, 0, 0, 0, 0, 1, 0, CONVERT(datetime, '2026-06-09T17:44:03.473', 126), CONVERT(datetime, '2026-06-10T13:23:12.040', 126)),
+  (3, N'small', N'Chico', N'Etiqueta chica 80mm', 80, NULL, 0, 0, 0, 0, 1, 0, CONVERT(datetime, '2026-06-09T17:44:03.473', 126), NULL),
+  (4, N'custom', N'Personalizado', N'Formato personalizado 80mm', 80, NULL, 0, 0, 0, 0, 1, 0, CONVERT(datetime, '2026-06-09T17:44:03.473', 126), NULL);
 SET IDENTITY_INSERT dbo.Scan_Reporte OFF;
 GO
 
@@ -106,15 +114,12 @@ VALUES
   (288, 1, N'precio', N'Precio', NULL, 0, 106, 320, 68, 38, 1, 0, N'right', 1, 3, 1, 0, CONVERT(datetime, '2026-06-10T13:49:52.577', 126), N'Arial'),
   (289, 1, N'codigobarra', N'CodigoBarra', NULL, 12, 168, 308, 48, 58, 1, 0, N'center', 1, 4, 1, 0, CONVERT(datetime, '2026-06-10T13:49:52.577', 126), N'Barcode'),
   (290, 1, N'linea', N'TextoFijo', N'------------', 72, 224, 180, 12, 8, 0, 0, N'left', 1, 5, 1, 0, CONVERT(datetime, '2026-06-10T13:49:52.580', 126), N'Arial'),
-
   (258, 2, N'texto', N'Descripcion', NULL, 4, 0, 316, 108, 17, 0, 0, N'center', 1, 1, 3, 1, CONVERT(datetime, '2026-06-10T13:23:12.057', 126), N'Roboto'),
   (259, 2, N'precio', N'Precio', NULL, 4, 65, 316, 112, 42, 1, 0, N'center', 1, 2, 1, 0, CONVERT(datetime, '2026-06-10T13:23:12.057', 126), N'Default'),
   (260, 2, N'codigobarra', N'CodigoBarra', NULL, 0, 160, 312, 80, 39, 0, 0, N'center', 1, 3, 1, 0, CONVERT(datetime, '2026-06-10T13:23:12.060', 126), N'Barcode'),
-
   (11, 3, N'texto', N'Descripcion', NULL, 10, 10, 300, 44, 16, 1, NULL, N'center', 1, 1, 2, 0, NULL, NULL),
   (12, 3, N'precio', N'Precio', NULL, 10, 58, 300, 54, 30, 1, NULL, N'center', 1, 2, 1, 0, NULL, NULL),
   (13, 3, N'texto', N'CodigoArticulo', N'Cod: {CodigoArticulo}', 10, 118, 300, 24, 14, 0, NULL, N'center', 1, 3, 1, 0, NULL, NULL),
-
   (14, 4, N'texto', N'Empresa', NULL, 10, 8, 300, 26, 16, 1, NULL, N'center', 1, 1, 1, 1, NULL, NULL),
   (15, 4, N'texto', N'Descripcion', NULL, 10, 40, 300, 58, 20, 1, NULL, N'center', 1, 2, 2, 0, NULL, NULL),
   (16, 4, N'precio', N'Precio', NULL, 10, 104, 300, 64, 32, 1, NULL, N'center', 1, 3, 1, 0, NULL, NULL),

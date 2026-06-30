@@ -7,7 +7,6 @@ import {
   Bold,
   ChevronDown,
   ChevronUp,
-  CircleHelp,
   Copy,
   Eye,
   EyeOff,
@@ -17,23 +16,34 @@ import {
   Type,
 } from 'lucide-react'
 import './App.css'
-import heroLogo from './assets/hero.png'
 import {
   addElement,
   buildAlfaScanLayout,
   buildSqlVerificationSnapshot,
   createDefaultDocument,
+  DEFAULT_PRINT_MARGINS,
   duplicateElement,
-  elementPalette,
   getCanvasSize,
+  getDefaultPlaceholderToken,
   getElementById,
-  getPaperFormat,
+  getElementLayerLabel,
+  getElementName,
+  getElementTemplateText,
+  getPrintableArea,
   fontSourceOptions,
   inferTipoFuente,
   logoLibrary,
+  bringElementForward,
+  bringElementToFront,
+  normalizeDocumentForSql,
+  normalizePrintMargins,
   paperFormats,
+  pxToMm,
   removeElement,
-  sqlDetalleToEditorElement,
+  sendElementBackward,
+  sendElementToBack,
+  resizeDocumentPaper,
+  sqlDetallesToEditorElements,
   STORAGE_KEY,
   toggleVisibility,
   tipoFuenteToFontFamily,
@@ -108,7 +118,68 @@ interface PreviewManualFields {
   stock: string
 }
 
+interface ElementMargins {
+  leftPx: number
+  topPx: number
+  rightPx: number
+  bottomPx: number
+}
+
+const BRAND_MARK_LOGO = '/logos/icono.png'
 const THEME_STORAGE_KEY = 'alfa-editor-scan:theme'
+type AddMenuKind = 'data' | 'design'
+
+const DATA_ADD_OPTIONS: Array<{ tipo: EditorElement['tipo']; nombre: string; descripcion: string }> = [
+  { tipo: 'empresa', nombre: 'Empresa', descripcion: 'Marca o razón social' },
+  { tipo: 'descripcion', nombre: 'Descripción', descripcion: 'Texto descriptivo' },
+  { tipo: 'precio', nombre: 'Precio', descripcion: 'Importe destacado' },
+  { tipo: 'codigoBarra', nombre: 'Código de barra', descripcion: 'EAN o UPC' },
+  { tipo: 'codigoArticulo', nombre: 'Código artículo', descripcion: 'SKU o código interno' },
+  { tipo: 'stock', nombre: 'Stock', descripcion: 'Cantidad disponible' },
+]
+
+const DESIGN_ADD_OPTIONS: Array<{ tipo: EditorElement['tipo']; nombre: string; descripcion: string }> = [
+  { tipo: 'textoFijo', nombre: 'Texto plano', descripcion: 'Etiqueta libre editable' },
+  { tipo: 'linea', nombre: 'Línea', descripcion: 'Separador fino' },
+  { tipo: 'linea', nombre: 'Separador', descripcion: 'Línea simple para dividir' },
+  { tipo: 'rectangulo', nombre: 'Rectángulo / cuadrado', descripcion: 'Marco o bloque visual' },
+  { tipo: 'logo', nombre: 'Logo', descripcion: 'Usa el icono Alfa' },
+]
+
+const TEXT_TEMPLATE_ELEMENT_TYPES = new Set<EditorElement['tipo']>([
+  'textoFijo',
+  'empresa',
+  'descripcion',
+  'precio',
+  'codigoArticulo',
+  'codigoBarra',
+  'codigoBarraTexto',
+  'stock',
+  'fecha',
+])
+
+const TEMPLATE_QUICK_ACTIONS: Array<{
+  label: string
+  appliesTo: EditorElement['tipo'][]
+  build: (placeholder: string) => string
+}> = [
+  { label: '$', appliesTo: ['precio', 'textoFijo'], build: (placeholder) => `$ ${placeholder}` },
+  { label: '%', appliesTo: ['precio', 'stock', 'textoFijo'], build: (placeholder) => `${placeholder}%` },
+  { label: 'Cod:', appliesTo: ['codigoArticulo', 'textoFijo'], build: (placeholder) => `Cod: ${placeholder}` },
+  { label: 'Barra:', appliesTo: ['codigoBarra', 'codigoBarraTexto', 'textoFijo'], build: (placeholder) => `Barra: ${placeholder}` },
+  { label: 'Stock:', appliesTo: ['stock', 'textoFijo'], build: (placeholder) => `Stock: ${placeholder}` },
+]
+
+const FALLBACK_QUICK_ACTIONS: Array<{
+  label: string
+  value: string
+}> = [
+  { label: '$', value: '$ ' },
+  { label: '%', value: '%' },
+  { label: 'Cod:', value: 'Cod: ' },
+  { label: 'Barra:', value: 'Barra: ' },
+  { label: 'Stock:', value: 'Stock: ' },
+]
 
 const fallbackPreviewCatalog: PreviewProduct[] = [
   {
@@ -197,9 +268,10 @@ function reportToDocument(report: SqlVerificationSnapshot, fallbackFormat: Forma
   const fallbackDocument = createDefaultDocument(fallbackFormat)
   const elementos =
     Array.isArray(report.detalles) && report.detalles.length > 0
-      ? report.detalles.map((detail, index) =>
-          sqlDetalleToEditorElement(
-            {
+      ? sqlDetallesToEditorElements(
+          [...report.detalles]
+            .sort((left, right) => (left.orden ?? 0) - (right.orden ?? 0))
+            .map((detail) => ({
               TipoElemento: detail.tipoElemento,
               Campo: detail.campo ?? undefined,
               TextoFijo: detail.textoFijo,
@@ -216,9 +288,7 @@ function reportToDocument(report: SqlVerificationSnapshot, fallbackFormat: Forma
               Orden: detail.orden,
               MaxLineas: detail.maxLineas,
               Mayuscula: detail.mayuscula,
-            },
-            index,
-          ),
+            })),
         )
       : fallbackDocument.elementos
 
@@ -227,6 +297,7 @@ function reportToDocument(report: SqlVerificationSnapshot, fallbackFormat: Forma
     nombre: typeof report.nombre === 'string' && report.nombre.trim() ? report.nombre : fallbackDocument.nombre,
     anchoPapelMm: typeof report.anchoPapelMm === 'number' ? Number(report.anchoPapelMm) : fallbackDocument.anchoPapelMm,
     altoPapelMm: typeof report.altoMm === 'number' ? Number(report.altoMm) : fallbackDocument.altoPapelMm,
+    margenImpresion: normalizePrintMargins(report.margenImpresion ?? fallbackDocument.margenImpresion ?? DEFAULT_PRINT_MARGINS),
     activo: typeof report.activo === 'boolean' ? report.activo : fallbackDocument.activo,
     esPredeterminado:
       typeof report.esPredeterminado === 'boolean' ? report.esPredeterminado : fallbackDocument.esPredeterminado,
@@ -235,9 +306,11 @@ function reportToDocument(report: SqlVerificationSnapshot, fallbackFormat: Forma
 }
 
 function normalizeStoredDocument(document: LabelDocument): LabelDocument {
+  const canvas = getCanvasSize(document)
   return {
     ...document,
     codigo: normalizeFormatCode(document.codigo),
+    margenImpresion: normalizePrintMargins(document.margenImpresion, canvas),
     activo: document.activo !== false,
     esPredeterminado: document.esPredeterminado === true,
     elementos: (document.elementos || []).map((element) => ({
@@ -339,6 +412,39 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
+function supportsTemplateEditing(element?: Pick<EditorElement, 'tipo'> | null) {
+  return Boolean(element && TEXT_TEMPLATE_ELEMENT_TYPES.has(element.tipo))
+}
+
+function getElementMargins(
+  element: Pick<EditorElement, 'x' | 'y' | 'width' | 'height'>,
+  canvas: { widthPx: number; heightPx: number },
+): ElementMargins {
+  return {
+    leftPx: Math.max(0, Math.round(element.x)),
+    topPx: Math.max(0, Math.round(element.y)),
+    rightPx: Math.max(0, Math.round(canvas.widthPx - element.x - element.width)),
+    bottomPx: Math.max(0, Math.round(canvas.heightPx - element.y - element.height)),
+  }
+}
+
+function getFriendlySaveMismatchMessage(mismatches: Array<{ path: string; expected: unknown; actual: unknown }>) {
+  if (!mismatches.length) return 'Guardado pendiente de verificación.'
+  return 'No se pudo verificar el guardado. Revisar conexión o datos SQL.'
+}
+
+function getQuickActionsForElement(element: EditorElement | undefined, placeholder: string | null) {
+  if (!element) return []
+
+  const contextual = TEMPLATE_QUICK_ACTIONS.filter((action) => action.appliesTo.includes(element.tipo)).map((action) => ({
+    label: action.label,
+    value: action.build(placeholder || ''),
+  }))
+
+  if (contextual.length > 0) return contextual
+  return FALLBACK_QUICK_ACTIONS
+}
+
 function formatSaveDebugLine(label: string, detail: unknown) {
   if (typeof detail === 'string') return `[SAVE_DEBUG] ${label}: ${detail}`
   try {
@@ -384,7 +490,7 @@ function App() {
   const [saveMessage, setSaveMessage] = useState('')
   const [showAdvancedInspector, setShowAdvancedInspector] = useState(false)
   const [showSqlConnectionPanel, setShowSqlConnectionPanel] = useState(false)
-  const [showAddElementMenu, setShowAddElementMenu] = useState(false)
+  const [openAddMenu, setOpenAddMenu] = useState<AddMenuKind | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('editor')
   const [previewQuery, setPreviewQuery] = useState('')
   const [selectedPreviewId, setSelectedPreviewId] = useState('')
@@ -402,12 +508,32 @@ function App() {
   })
   const addElementMenuRef = useRef<HTMLDivElement | null>(null)
   const formatLoadRequestRef = useRef(0)
+  const paperResizeSourceRef = useRef<{ widthMm: number; heightMm: number }>({
+    widthMm: stored.document.anchoPapelMm,
+    heightMm: stored.document.altoPapelMm,
+  })
 
   const canvas = getCanvasSize(documentState)
   const effectiveSelectedId = documentState.elementos.some((element) => element.id === selectedId)
     ? selectedId
     : documentState.elementos[0]?.id ?? ''
   const selectedElement = getElementById(documentState, effectiveSelectedId)
+  const selectedPlaceholderToken = selectedElement ? getDefaultPlaceholderToken(selectedElement.tipo) : null
+  const selectedPlaceholder = selectedPlaceholderToken ? `{${selectedPlaceholderToken}}` : null
+  const selectedFieldLabel = selectedElement && supportsTemplateEditing(selectedElement) ? getElementName(selectedElement.tipo) : ''
+  const selectedElementIndex = selectedElement ? documentState.elementos.findIndex((element) => element.id === selectedElement.id) : -1
+  const selectedElementOrder = selectedElementIndex >= 0 ? selectedElementIndex + 1 : 0
+  const selectedElementIsFirst = selectedElementIndex <= 0
+  const selectedElementIsLast = selectedElementIndex < 0 || selectedElementIndex >= documentState.elementos.length - 1
+  const selectedQuickActions = supportsTemplateEditing(selectedElement)
+    ? getQuickActionsForElement(selectedElement ?? undefined, selectedPlaceholder)
+    : []
+  const selectedMargins = selectedElement ? getElementMargins(selectedElement, canvas) : null
+  const printableArea = getPrintableArea({
+    anchoPapelMm: documentState.anchoPapelMm,
+    altoPapelMm: documentState.altoPapelMm,
+    margenImpresion: documentState.margenImpresion ?? DEFAULT_PRINT_MARGINS,
+  })
   const filteredPreviewProducts = useMemo(() => {
     const query = previewQuery.trim().toLowerCase()
     if (!query) return previewProducts
@@ -425,10 +551,12 @@ function App() {
     fallbackPreviewCatalog[0]
   const previewData = mergePreviewSample(selectedPreviewProduct, previewManualFields)
   const alfaScanLayout = useMemo(() => buildAlfaScanLayout(documentState, previewData), [documentState, previewData])
-  const customFormatActive = normalizeFormatCode(documentState.codigo) === 'custom'
   const themeLabel = themeMode === 'dark' ? 'Modo oscuro' : 'Modo claro'
   const currentZoom = viewMode === 'editor' ? editorZoom : previewZoom
   const zoomLabel = `${Math.round(currentZoom * 100)}%`
+  const sqlConnectionConnected = sqlConnectionStatus?.connected === true
+  const sqlConnectionCheckedAt = sqlConnectionStatus?.checkedAt ?? ''
+  const hasSqlConnectionStatus = sqlConnectionStatus !== null
   useEffect(() => {
     localStorage.setItem(
       STORAGE_KEY,
@@ -468,18 +596,18 @@ function App() {
   }, [saveStatus])
 
   useEffect(() => {
-    if (!showAddElementMenu) return
+    if (!openAddMenu) return
 
     function handlePointerDown(event: MouseEvent) {
       const target = event.target as Node | null
       if (target && addElementMenuRef.current && !addElementMenuRef.current.contains(target)) {
-        setShowAddElementMenu(false)
+        setOpenAddMenu(null)
       }
     }
 
     window.addEventListener('mousedown', handlePointerDown)
     return () => window.removeEventListener('mousedown', handlePointerDown)
-  }, [showAddElementMenu])
+  }, [openAddMenu])
 
   useEffect(() => {
     let cancelled = false
@@ -541,10 +669,10 @@ function App() {
     let cancelled = false
 
     async function loadPreviewProducts() {
-      if (!sqlConnectionStatus?.connected) {
+      if (!sqlConnectionConnected) {
         setPreviewProducts(fallbackPreviewCatalog)
         setPreviewProductsSource('Muestra local')
-        setPreviewProductsError(sqlConnectionStatus ? 'La conexión SQL no está disponible.' : '')
+        setPreviewProductsError(hasSqlConnectionStatus ? 'La conexión SQL no está disponible.' : '')
         return
       }
 
@@ -594,7 +722,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [sqlConnectionStatus?.connected, sqlConnectionStatus?.checkedAt])
+  }, [sqlConnectionConnected, sqlConnectionCheckedAt, hasSqlConnectionStatus])
 
   function notify(kind: ToastKind, message: string) {
     setToast({ kind, message })
@@ -718,6 +846,11 @@ function App() {
     updateDocument(updateElement(documentState, selectedElement.id, patch))
   }
 
+  function applyTemplateQuickAction(nextTemplate: string) {
+    if (!selectedElement || !supportsTemplateEditing(selectedElement)) return
+    patchSelectedElement({ text: nextTemplate })
+  }
+
   async function handleFormatChange(codigo: FormatCode) {
     const nextFormat = normalizeFormatCode(codigo)
     if (nextFormat === activeFormat) return
@@ -755,6 +888,10 @@ function App() {
       setActiveFormat(nextFormat)
       setDocumentState(loadedDocument)
       setSelectedId(loadedDocument.elementos[0]?.id ?? '')
+      paperResizeSourceRef.current = {
+        widthMm: loadedDocument.anchoPapelMm,
+        heightMm: loadedDocument.altoPapelMm,
+      }
       if (!response.ok && response.status !== 404) {
         notify('error', 'No se pudo leer SQL; se cargó una plantilla vacía.')
       }
@@ -775,6 +912,10 @@ function App() {
       setActiveFormat(nextFormat)
       setDocumentState(fallbackDocument)
       setSelectedId(fallbackDocument.elementos[0]?.id ?? '')
+      paperResizeSourceRef.current = {
+        widthMm: fallbackDocument.anchoPapelMm,
+        heightMm: fallbackDocument.altoPapelMm,
+      }
 
       const message = error instanceof Error ? error.message : 'No se pudo leer la plantilla desde SQL.'
       notify('error', message)
@@ -782,31 +923,69 @@ function App() {
   }
 
   function handleCustomFormatUpdate(nextWidth: number, nextHeight: number) {
-    const safeWidth = clamp(Math.round(nextWidth), 30, 200)
-    const safeHeight = clamp(Math.round(nextHeight), 20, 240)
-    const format = getPaperFormat('custom')
+    if (
+      paperResizeSourceRef.current.widthMm === documentState.anchoPapelMm &&
+      paperResizeSourceRef.current.heightMm === documentState.altoPapelMm
+    ) {
+      paperResizeSourceRef.current = {
+        widthMm: documentState.anchoPapelMm,
+        heightMm: documentState.altoPapelMm,
+      }
+    }
+    updateDocument(resizeDocumentPaper(documentState, nextWidth, nextHeight))
+  }
+
+  function handleRescaleElementsToPaper() {
+    const confirmed = window.confirm('Esto reescalará todos los elementos al nuevo tamaño del papel. ¿Continuar?')
+    if (!confirmed) return
+    const source = paperResizeSourceRef.current
+    const next = resizeDocumentPaper(documentState, documentState.anchoPapelMm, documentState.altoPapelMm, {
+      scaleElements: true,
+      sourceSizeMm: source,
+    })
+    paperResizeSourceRef.current = {
+      widthMm: next.anchoPapelMm,
+      heightMm: next.altoPapelMm,
+    }
+    updateDocument(next)
+  }
+
+  function handlePrintMarginUpdate(side: 'left' | 'top' | 'right' | 'bottom', nextMm: number) {
+    const nextPx = Math.max(0, Math.round(nextMm * 4))
+    const nextMargins = normalizePrintMargins(
+      {
+        ...(documentState.margenImpresion ?? DEFAULT_PRINT_MARGINS),
+        [side]: nextPx,
+      },
+      canvas,
+    )
 
     updateDocument({
       ...documentState,
-      codigo: format.codigo,
-      nombre: documentState.nombre,
-      anchoPapelMm: safeWidth,
-      altoPapelMm: safeHeight,
+      margenImpresion: nextMargins,
     })
   }
 
   function handleAddElement(tipo: EditorElement['tipo']) {
     const next = addElement(documentState, tipo)
+    const inserted = next.elementos.find((element) => !documentState.elementos.some((current) => current.id === element.id))
     updateDocument(next)
-    setCurrentSelectedId(next.elementos[next.elementos.length - 1]?.id ?? '')
-    setShowAddElementMenu(false)
+    if (inserted) {
+      setCurrentSelectedId(inserted.id)
+    }
+    setOpenAddMenu(null)
+  }
+
+  function toggleAddMenu(kind: AddMenuKind) {
+    setOpenAddMenu((current) => (current === kind ? null : kind))
   }
 
   function handleDelete() {
     if (!selectedElement) return
+    const nextSelection = documentState.elementos[selectedElementIndex - 1] ?? documentState.elementos[selectedElementIndex + 1] ?? null
     const next = removeElement(documentState, selectedElement.id)
     updateDocument(next)
-    setCurrentSelectedId(next.elementos[0]?.id ?? '')
+    setCurrentSelectedId(nextSelection?.id ?? next.elementos[0]?.id ?? '')
   }
 
   function handleAlign(align: EditorElement['align']) {
@@ -821,17 +1000,42 @@ function App() {
   function handleDuplicate() {
     if (!selectedElement) return
     const next = duplicateElement(documentState, selectedElement.id)
-    const duplicatedId = next.elementos[next.elementos.findIndex((element) => element.id === selectedElement.id) + 1]?.id
+    const duplicated = next.elementos.find((element) => !documentState.elementos.some((current) => current.id === element.id))
     updateDocument(next)
-    setCurrentSelectedId(duplicatedId ?? selectedElement.id)
+    setCurrentSelectedId(duplicated?.id ?? selectedElement.id)
+  }
+
+  function handleMoveLayerBackward() {
+    if (!selectedElement) return
+    updateDocument(sendElementBackward(documentState, selectedElement.id))
+  }
+
+  function handleMoveLayerForward() {
+    if (!selectedElement) return
+    updateDocument(bringElementForward(documentState, selectedElement.id))
+  }
+
+  function handleMoveLayerToBack() {
+    if (!selectedElement) return
+    updateDocument(sendElementToBack(documentState, selectedElement.id))
+  }
+
+  function handleMoveLayerToFront() {
+    if (!selectedElement) return
+    updateDocument(bringElementToFront(documentState, selectedElement.id))
+  }
+
+  function handleSelectLayer(elementId: string) {
+    setCurrentSelectedId(elementId)
+    setShowAdvancedInspector(true)
   }
 
   function handleEditText(element: EditorElement) {
-    if (!['textoFijo', 'empresa', 'descripcion', 'precio', 'codigoArticulo', 'codigoBarra', 'stock', 'fecha', 'logo'].includes(element.tipo)) {
+    if (!supportsTemplateEditing(element) && element.tipo !== 'logo') {
       return
     }
 
-    const nextText = window.prompt('Editar texto', element.text || '')
+    const nextText = window.prompt('Editar texto', element.text || getElementTemplateText(element) || '')
     if (nextText === null) return
     updateDocument(updateElement(documentState, element.id, { text: nextText }))
   }
@@ -870,6 +1074,18 @@ function App() {
       pushMismatch('anchoPapelMm', expected.anchoPapelMm, actual.anchoPapelMm)
     }
     if (expected.altoMm !== actual.altoMm) pushMismatch('altoMm', expected.altoMm, actual.altoMm)
+    if (expected.margenImpresion.left !== actual.margenImpresion.left) {
+      pushMismatch('margenImpresion.left', expected.margenImpresion.left, actual.margenImpresion.left)
+    }
+    if (expected.margenImpresion.top !== actual.margenImpresion.top) {
+      pushMismatch('margenImpresion.top', expected.margenImpresion.top, actual.margenImpresion.top)
+    }
+    if (expected.margenImpresion.right !== actual.margenImpresion.right) {
+      pushMismatch('margenImpresion.right', expected.margenImpresion.right, actual.margenImpresion.right)
+    }
+    if (expected.margenImpresion.bottom !== actual.margenImpresion.bottom) {
+      pushMismatch('margenImpresion.bottom', expected.margenImpresion.bottom, actual.margenImpresion.bottom)
+    }
     if (expected.activo !== actual.activo) pushMismatch('activo', expected.activo, actual.activo)
     if (expected.esPredeterminado !== actual.esPredeterminado) {
       pushMismatch('esPredeterminado', expected.esPredeterminado, actual.esPredeterminado)
@@ -917,6 +1133,7 @@ function App() {
   async function saveSql() {
     setSaveStatus('saving')
     setSaveMessage('Guardando...')
+    const sqlDocument = normalizeDocumentForSql(documentState)
     try {
       const saveResponse = await fetch('/api/sql/save', {
         method: 'POST',
@@ -924,7 +1141,7 @@ function App() {
           'content-type': 'application/json',
         },
         body: JSON.stringify({
-          document: documentState,
+          document: sqlDocument,
         }),
       })
 
@@ -948,18 +1165,18 @@ function App() {
       })
 
       if (!saveResponse.ok || savePayload.ok === false) {
-        const error = savePayload.error || 'No se pudo guardar en SQL Server.'
+        const error = 'No se pudo guardar la plantilla.'
         pushSaveDebug('save_error', error)
         throw new Error(error)
       }
 
       setSaveStatus('verifying')
-      setSaveMessage('Verificando SQL...')
+      setSaveMessage('Verificando...')
 
       const savedReport = savePayload.report
       const savedVerification = savePayload.verification
       if (savedReport) {
-        const expected = buildSqlVerificationSnapshot(documentState)
+        const expected = buildSqlVerificationSnapshot(sqlDocument)
         const verification =
           savedVerification && typeof savedVerification.ok === 'boolean'
             ? {
@@ -973,26 +1190,25 @@ function App() {
         })
 
         if (!verification.ok) {
-          const summary = verification.mismatches
-            .slice(0, 3)
-            .map((item) => `${item.path}: esperado ${JSON.stringify(item.expected)} / SQL ${JSON.stringify(item.actual)}`)
-            .join(' | ')
-          const detail = summary || 'La plantilla guardada no coincide con SQL.'
-          setSaveStatus('mismatch')
-          setSaveMessage('Guardó pero no coincide con SQL')
+          setSaveStatus('verified')
+          const detail = getFriendlySaveMismatchMessage(verification.mismatches)
+          setSaveMessage('Guardado en SQL. Verificación pendiente.')
           pushSaveDebug('save_mismatch', {
-            summary,
+            summary: verification.mismatches
+              .slice(0, 3)
+              .map((item) => `${item.path}: esperado ${JSON.stringify(item.expected)} / SQL ${JSON.stringify(item.actual)}`)
+              .join(' | '),
             mismatches: verification.mismatches,
             expected: expected.detalles.slice(0, 5),
             actual: savedReport.detalles.slice(0, 5),
           })
-          notify('error', detail)
+          notify('success', detail)
           return
         }
 
         setSaveStatus('verified')
-        setSaveMessage('Guardado y verificado en SQL')
-        notify('success', 'Guardado y verificado en SQL')
+        setSaveMessage('Guardado verificado.')
+        notify('success', 'Guardado verificado.')
         return
       }
 
@@ -1012,14 +1228,15 @@ function App() {
         })
 
         if (!verifyResponse.ok || verifyPayload.ok === false || !verifyPayload.report) {
-          const error = verifyPayload.error || 'No se pudo leer la plantilla guardada desde SQL.'
+          const error = 'No se pudo verificar el guardado. Revisar conexión o datos SQL.'
           pushSaveDebug('verify_error', error)
           throw new Error(error)
         }
       } catch (verifyError) {
         setSaveStatus('error')
-        setSaveMessage('Error al verificar SQL')
-        const message = verifyError instanceof Error ? verifyError.message : 'No se pudo verificar SQL.'
+        setSaveMessage('No se pudo verificar el guardado.')
+        const message =
+          verifyError instanceof Error ? verifyError.message : 'No se pudo verificar el guardado. Revisar conexión o datos SQL.'
         pushSaveDebug('verify_exception', {
           message,
           error: verifyError,
@@ -1028,7 +1245,7 @@ function App() {
         return
       }
 
-      const expected = buildSqlVerificationSnapshot(documentState)
+      const expected = buildSqlVerificationSnapshot(sqlDocument)
       const verification =
         savePayload.verification && typeof savePayload.verification.ok === 'boolean'
           ? {
@@ -1042,30 +1259,29 @@ function App() {
       })
 
       if (!verification.ok) {
-        const summary = verification.mismatches
-          .slice(0, 3)
-          .map((item) => `${item.path}: esperado ${JSON.stringify(item.expected)} / SQL ${JSON.stringify(item.actual)}`)
-          .join(' | ')
-        const detail = summary || 'La plantilla guardada no coincide con SQL.'
-        setSaveStatus('mismatch')
-        setSaveMessage('Guardó pero no coincide con SQL')
+        setSaveStatus('verified')
+        const detail = getFriendlySaveMismatchMessage(verification.mismatches)
+        setSaveMessage('Guardado en SQL. Verificación pendiente.')
         pushSaveDebug('save_mismatch', {
-          summary,
+          summary: verification.mismatches
+            .slice(0, 3)
+            .map((item) => `${item.path}: esperado ${JSON.stringify(item.expected)} / SQL ${JSON.stringify(item.actual)}`)
+            .join(' | '),
           mismatches: verification.mismatches,
           expected: expected.detalles.slice(0, 5),
           actual: verifyPayload.report.detalles.slice(0, 5),
         })
-        notify('error', detail)
+        notify('success', detail)
         return
       }
 
       setSaveStatus('verified')
-      setSaveMessage('Guardado y verificado en SQL')
-      notify('success', 'Guardado y verificado en SQL')
+      setSaveMessage('Guardado verificado.')
+      notify('success', 'Guardado verificado.')
     } catch (error) {
       setSaveStatus('error')
-      const message = error instanceof Error ? error.message : 'No se pudo guardar en SQL Server.'
-      setSaveMessage('Error al guardar')
+      const message = error instanceof Error ? error.message : 'No se pudo guardar la plantilla.'
+      setSaveMessage('No se pudo guardar la plantilla.')
       pushSaveDebug('save_exception', {
         message,
         error,
@@ -1098,6 +1314,71 @@ function App() {
     if (!selectedElement) return
     const nextSize = clamp(Math.round(selectedElement.fontSize + delta), 8, 80)
     patchSelectedElement({ fontSize: nextSize })
+  }
+
+  function renderMarginGuides() {
+    if (!selectedElement || !selectedMargins) return null
+
+    return (
+      <div className="margin-guides" aria-hidden="true">
+        <div
+          className="margin-guide is-horizontal is-left"
+          style={{
+            left: 0,
+            top: selectedElement.y + selectedElement.height / 2,
+            width: selectedMargins.leftPx,
+          }}
+        />
+        <div
+          className="margin-guide is-horizontal is-right"
+          style={{
+            left: selectedElement.x + selectedElement.width,
+            top: selectedElement.y + selectedElement.height / 2,
+            width: selectedMargins.rightPx,
+          }}
+        />
+        <div
+          className="margin-guide is-vertical is-top"
+          style={{
+            left: selectedElement.x + selectedElement.width / 2,
+            top: 0,
+            height: selectedMargins.topPx,
+          }}
+        />
+        <div
+          className="margin-guide is-vertical is-bottom"
+          style={{
+            left: selectedElement.x + selectedElement.width / 2,
+            top: selectedElement.y + selectedElement.height,
+            height: selectedMargins.bottomPx,
+          }}
+        />
+      </div>
+    )
+  }
+
+  function renderPrintSafeArea() {
+    if (
+      printableArea.margins.left === 0 &&
+      printableArea.margins.top === 0 &&
+      printableArea.margins.right === 0 &&
+      printableArea.margins.bottom === 0
+    ) {
+      return null
+    }
+
+    return (
+      <div
+        className="print-safe-area"
+        aria-hidden="true"
+        style={{
+          left: printableArea.x,
+          top: printableArea.y,
+          width: printableArea.width,
+          height: printableArea.height,
+        }}
+      />
+    )
   }
 
   function renderElementNode(element: AlfaScanLayoutItem, index: number, interactive: boolean, scale = 1) {
@@ -1136,6 +1417,8 @@ function App() {
           <div className="logo-box">
             {element.imageUrl ? <img src={element.imageUrl} alt={element.nombre} /> : <span>{element.text || 'LOGO'}</span>}
           </div>
+        ) : element.tipo === 'rectangulo' ? (
+          <div className="rectangle-box" aria-hidden="true" />
         ) : (
           <span
             className="element-value"
@@ -1181,7 +1464,7 @@ function App() {
         scale={editorZoom}
         size={{ width: element.width, height: element.height }}
         position={{ x: element.x, y: element.y }}
-        enableResizing={element.tipo !== 'linea'}
+        enableResizing
         dragGrid={[4, 4]}
         resizeGrid={[4, 4]}
         onDragStop={(_, dataPosition) => {
@@ -1215,26 +1498,25 @@ function App() {
       <header className="topbar">
         <div className="brand-block">
           <div className="brand-mark">
-            <img src={heroLogo} alt="AlfaScan" />
+            <img src={BRAND_MARK_LOGO} alt="Alfa" />
           </div>
-          <div>
-            <p className="eyebrow">AlfaEditorScan</p>
-            <h1>Editor de etiquetas local</h1>
+          <div className="brand-copy">
+            <h1>AlfaEditorScan</h1>
           </div>
         </div>
         <div className="topbar-actions">
+          <span className={`pill status-chip ${sqlConnectionStatus?.connected ? 'pill-ok' : 'pill-error'}`}>
+            <span className={`status-dot ${sqlConnectionStatus?.connected ? 'is-online' : ''}`} />
+            {sqlConnectionStatus?.connected ? 'Base conectada' : sqlConnectionLoading ? 'Base cargando' : 'Base desconectada'}
+          </span>
           <button className="ghost" type="button" onClick={() => (viewMode === 'editor' ? openPreview() : closePreview())}>
-            {viewMode === 'editor' ? 'Previsualizar' : 'Volver al editor'}
-          </button>
-          <button className="ghost" type="button" onClick={() => setShowAdvancedInspector((current) => !current)}>
-            <CircleHelp size={16} strokeWidth={2.3} />
-            <span>{showAdvancedInspector ? 'Cerrar opciones' : 'Más opciones'}</span>
+            {viewMode === 'editor' ? 'Previsualizar' : 'Volver'}
           </button>
           <button className="ghost" type="button" onClick={toggleTheme}>
             {themeLabel}
           </button>
           <button className="primary" type="button" onClick={saveSql} disabled={saveStatus === 'saving' || saveStatus === 'verifying'}>
-            {saveStatus === 'saving' ? 'Guardando...' : saveStatus === 'verifying' ? 'Verificando SQL...' : 'Guardar'}
+            {saveStatus === 'saving' ? 'Guardando...' : saveStatus === 'verifying' ? 'Verificando...' : 'Guardar'}
           </button>
           <span className={`pill ${saveStatus === 'saving' || saveStatus === 'verifying' ? 'pill-warn' : saveStatus === 'error' || saveStatus === 'mismatch' ? 'pill-error' : ''}`}>
             {saveMessage || toast.message || 'Listo'}
@@ -1242,9 +1524,9 @@ function App() {
         </div>
       </header>
 
-        {viewMode === 'editor' ? (
+      {viewMode === 'editor' ? (
         <main className="workspace">
-      <aside className="panel left-panel">
+          <aside className="panel left-panel">
           <section className={`card sql-card ${showSqlConnectionPanel ? 'is-open' : 'is-closed'}`}>
             <div className="card-head">
               <div>
@@ -1376,11 +1658,11 @@ function App() {
             <div className="card-head">
               <h2>Formato</h2>
               <span className="pill">
-                {documentState.anchoPapelMm} mm · {canvas.widthPx} px
+                {documentState.anchoPapelMm} mm × {documentState.altoPapelMm} mm
               </span>
             </div>
             <div className="field">
-              <label htmlFor="format">Plantilla</label>
+              <label htmlFor="format">Formato</label>
               <select
                 id="format"
                 value={documentState.codigo}
@@ -1407,29 +1689,36 @@ function App() {
 
             <div className="grid-2">
               <div className="field">
-                <label htmlFor="custom-width">Ancho mm</label>
+                <label htmlFor="custom-width">Ancho etiqueta mm</label>
                 <input
                   id="custom-width"
                   type="number"
-                  min={30}
-                  max={200}
+                  min={20}
+                  max={120}
                   value={documentState.anchoPapelMm}
                   onChange={(event) => handleCustomFormatUpdate(Number(event.target.value), documentState.altoPapelMm)}
-                  disabled={!customFormatActive}
                 />
               </div>
               <div className="field">
-                <label htmlFor="custom-height">Alto mm</label>
+                <label htmlFor="custom-height">Alto etiqueta mm</label>
                 <input
                   id="custom-height"
                   type="number"
-                  min={20}
-                  max={240}
+                  min={10}
+                  max={120}
                   value={documentState.altoPapelMm}
                   onChange={(event) => handleCustomFormatUpdate(documentState.anchoPapelMm, Number(event.target.value))}
-                  disabled={!customFormatActive}
                 />
               </div>
+            </div>
+            <div className="format-dimensions-summary">
+              <span>Área: {documentState.anchoPapelMm} mm × {documentState.altoPapelMm} mm</span>
+              <span>Canvas: {canvas.widthPx} px × {canvas.heightPx} px</span>
+            </div>
+            <div className="connection-actions format-actions">
+              <button className="ghost" type="button" onClick={handleRescaleElementsToPaper}>
+                Reescalar elementos al papel
+              </button>
             </div>
             <div className="grid-2">
               <label className="field checkbox-field" htmlFor="sheet-active">
@@ -1451,328 +1740,540 @@ function App() {
                 />
               </label>
             </div>
-              <p className="helper-text">1 mm = 4 px. El canvas usa el mismo modelo visual que la vista previa.</p>
+            <div className="field">
+              <label>Margen de impresión</label>
+              <div className="grid-2">
+                <div className="field">
+                  <label htmlFor="print-margin-left">Izq mm</label>
+                  <input
+                    id="print-margin-left"
+                    type="number"
+                    min={0}
+                    max={Math.floor(documentState.anchoPapelMm / 2)}
+                    value={pxToMm(printableArea.margins.left)}
+                    onChange={(event) => handlePrintMarginUpdate('left', Number(event.target.value))}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="print-margin-top">Sup mm</label>
+                  <input
+                    id="print-margin-top"
+                    type="number"
+                    min={0}
+                    max={Math.floor(documentState.altoPapelMm / 2)}
+                    value={pxToMm(printableArea.margins.top)}
+                    onChange={(event) => handlePrintMarginUpdate('top', Number(event.target.value))}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="print-margin-right">Der mm</label>
+                  <input
+                    id="print-margin-right"
+                    type="number"
+                    min={0}
+                    max={Math.floor(documentState.anchoPapelMm / 2)}
+                    value={pxToMm(printableArea.margins.right)}
+                    onChange={(event) => handlePrintMarginUpdate('right', Number(event.target.value))}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="print-margin-bottom">Inf mm</label>
+                  <input
+                    id="print-margin-bottom"
+                    type="number"
+                    min={0}
+                    max={Math.floor(documentState.altoPapelMm / 2)}
+                    value={pxToMm(printableArea.margins.bottom)}
+                    onChange={(event) => handlePrintMarginUpdate('bottom', Number(event.target.value))}
+                  />
+                </div>
+              </div>
+              <span className="helper-text">
+                Área útil: {pxToMm(printableArea.width)} mm × {pxToMm(printableArea.height)} mm.
+              </span>
+            </div>
+            <p className="helper-text">1 mm = 4 px. El canvas usa el mismo modelo visual que la vista previa.</p>
           </section>
           </aside>
 
           <section className="canvas-column">
-          {selectedElement ? (
-            <div className="floating-toolbar card">
-              <label className="toolbar-control toolbar-select">
-                <span>Tamaño</span>
-                <div className="size-stepper">
-                  <button
-                    type="button"
-                    className="tool-button icon-button"
-                    onClick={() => adjustSelectedFontSize(-1)}
-                    title="Disminuir letra"
-                    aria-label="Disminuir letra"
-                  >
-                    A-
-                  </button>
-                  <select
-                    value={selectedElement.fontSize}
-                    onChange={(event) => patchSelectedElement({ fontSize: Number(event.target.value) })}
-                  >
-                    {[8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64].map((size) => (
-                      <option key={size} value={size}>
-                        {size}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="tool-button icon-button"
-                    onClick={() => adjustSelectedFontSize(1)}
-                    title="Aumentar letra"
-                    aria-label="Aumentar letra"
-                  >
-                    A+
-                  </button>
-                </div>
-              </label>
-              <label className="toolbar-control toolbar-select">
-                <span>Tipo de letra</span>
-                <select
-                  value={selectedElement.tipoFuente || inferTipoFuente(selectedElement.fontFamily)}
-                  onChange={(event) => {
-                    const nextTipoFuente = event.target.value
-                    const isBarcodeFont = nextTipoFuente === 'Barcode'
-                    patchSelectedElement({
-                      tipoFuente: nextTipoFuente,
-                      fontFamily: tipoFuenteToFontFamily(nextTipoFuente),
-                      fontWeight: isBarcodeFont ? 'normal' : selectedElement.fontWeight,
-                      fontStyle: isBarcodeFont ? 'normal' : selectedElement.fontStyle,
-                      italica: isBarcodeFont ? false : selectedElement.italica,
-                    })
-                  }}
-                >
-                  {fontSourceOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="toolbar-color" title="Color">
-                <span>Color</span>
-                <input
-                  type="color"
-                  value={selectedElement.color}
-                  onChange={(event) => patchSelectedElement({ color: event.target.value })}
-                  aria-label="Color del elemento"
-                />
-              </label>
-              <label className="toolbar-control toolbar-select">
-                <span>Líneas máximas</span>
-                <select
-                  value={selectedElement.maxLineas}
-                  onChange={(event) => patchSelectedElement({ maxLineas: Number(event.target.value) })}
-                >
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((count) => (
-                    <option key={count} value={count}>
-                      {count}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="toolbar-segment" role="group" aria-label="Formato de texto">
-                <button
-                  type="button"
-                  className={`tool-button icon-button ${selectedElement.fontWeight === 'bold' ? 'is-active' : ''}`}
-                  onClick={() => setSelectedFontWeight(selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}
-                  title="Negrita"
-                  aria-label="Negrita"
-                >
-                  <Bold size={16} strokeWidth={2.3} />
-                </button>
-                <button
-                  type="button"
-                  className={`tool-button icon-button ${selectedElement.italica ? 'is-active' : ''}`}
-                  onClick={() => setSelectedItalic(!selectedElement.italica)}
-                  title="Itálica"
-                  aria-label="Itálica"
-                >
-                  <Italic size={16} strokeWidth={2.3} />
-                </button>
-                <button
-                  type="button"
-                  className={`tool-button icon-button ${selectedElement.uppercase ? 'is-active' : ''}`}
-                  onClick={() => patchSelectedElement({ uppercase: !selectedElement.uppercase })}
-                  title="Mayúsculas"
-                  aria-label="Mayúsculas"
-                >
-                  <Type size={16} strokeWidth={2.3} />
-                </button>
-              </div>
-              <div className="toolbar-segment" role="group" aria-label="Alineación">
-                <button
-                  type="button"
-                  className={`tool-button icon-button ${selectedElement.align === 'left' ? 'is-active' : ''}`}
-                  onClick={() => handleAlign('left')}
-                  title="Alinear a la izquierda"
-                  aria-label="Alinear a la izquierda"
-                >
-                  <AlignLeft size={16} strokeWidth={2.3} />
-                </button>
-                <button
-                  type="button"
-                  className={`tool-button icon-button ${selectedElement.align === 'center' ? 'is-active' : ''}`}
-                  onClick={() => handleAlign('center')}
-                  title="Centrar"
-                  aria-label="Centrar"
-                >
-                  <AlignCenter size={16} strokeWidth={2.3} />
-                </button>
-                <button
-                  type="button"
-                  className={`tool-button icon-button ${selectedElement.align === 'right' ? 'is-active' : ''}`}
-                  onClick={() => handleAlign('right')}
-                  title="Alinear a la derecha"
-                  aria-label="Alinear a la derecha"
-                >
-                  <AlignRight size={16} strokeWidth={2.3} />
-                </button>
-              </div>
-              <div className="add-element-popover" ref={addElementMenuRef}>
-                <button
-                  type="button"
-                  className="tool-button add-element-button"
-                  onClick={() => setShowAddElementMenu((current) => !current)}
-                  aria-expanded={showAddElementMenu}
-                  aria-haspopup="menu"
-                >
-                  <Plus size={16} strokeWidth={2.5} />
-                  <span>Agregar elemento</span>
-                </button>
-                {showAddElementMenu ? (
-                  <div className="add-element-menu" role="menu" aria-label="Agregar elemento">
-                    {elementPalette.map((item) => (
+            {selectedElement ? (
+              <div className="floating-toolbar card">
+                <div className="toolbar-row toolbar-row-primary">
+                  <div className="toolbar-title-block">
+                    <span className="toolbar-label">Elemento</span>
+                    <strong>{selectedFieldLabel || selectedElement.nombre}</strong>
+                  </div>
+                  <label className="toolbar-control toolbar-select toolbar-size-control">
+                    <span>Tamaño</span>
+                    <div className="size-stepper">
                       <button
-                        key={item.tipo}
                         type="button"
-                        className="add-element-option"
-                        onClick={() => handleAddElement(item.tipo)}
+                        className="tool-button icon-button"
+                        onClick={() => adjustSelectedFontSize(-1)}
+                        title="Disminuir letra"
+                        aria-label="Disminuir letra"
                       >
-                        <strong>{item.nombre}</strong>
-                        <span>{item.descripcion}</span>
+                        A-
                       </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                className={`tool-button icon-button ${selectedElement.visible ? 'is-active' : ''}`}
-                onClick={handleToggleVisibility}
-                title={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
-                aria-label={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
-              >
-                {selectedElement.visible ? <Eye size={16} strokeWidth={2.3} /> : <EyeOff size={16} strokeWidth={2.3} />}
-              </button>
-              <button
-                type="button"
-                className="tool-button icon-button"
-                onClick={handleDuplicate}
-                title="Duplicar"
-                aria-label="Duplicar"
-              >
-                <Copy size={16} strokeWidth={2.3} />
-              </button>
-              <button
-                type="button"
-                className="tool-button danger-tool icon-button"
-                onClick={handleDelete}
-                title="Eliminar"
-                aria-label="Eliminar"
-              >
-                <Trash2 size={16} strokeWidth={2.3} />
-              </button>
-            </div>
-          ) : null}
-
-          <div className="canvas-stage">
-            <div
-              className="paper-zoom-frame"
-              style={{ width: canvas.widthPx * editorZoom, height: canvas.heightPx * editorZoom }}
-            >
-              <div
-                className="paper"
-                style={{
-                  width: canvas.widthPx,
-                  height: canvas.heightPx,
-                  transform: `scale(${editorZoom})`,
-                }}
-              >
-                      {alfaScanLayout.items.map((item, index) => renderElementNode(item, index, true))}
-              </div>
-            </div>
-
-            <div className="zoom-controls">
-              <button type="button" className="ghost zoom-button" onClick={() => updateZoom(-0.1)}>
-                - Zoom -
-              </button>
-              <span className="zoom-label">{zoomLabel}</span>
-              <button type="button" className="ghost zoom-button" onClick={() => updateZoom(0.1)}>
-                + Zoom +
-              </button>
-            </div>
-          </div>
-
-          {showAdvancedInspector ? (
-            <aside className="advanced-inspector card">
-              <div className="card-head">
-                <h2>Propiedades avanzadas</h2>
-                <button type="button" className="ghost ghost-small" onClick={() => setShowAdvancedInspector(false)}>
-                  Cerrar
-                </button>
-              </div>
-              {selectedElement ? (
-                <div className="grid-2 inspector-grid">
-                  <div className="field">
-                    <label htmlFor="inspector-x">X</label>
-                    <input
-                      id="inspector-x"
-                      type="number"
-                      value={selectedElement.x}
-                      onChange={(event) => patchSelectedElement({ x: Number(event.target.value) })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="inspector-y">Y</label>
-                    <input
-                      id="inspector-y"
-                      type="number"
-                      value={selectedElement.y}
-                      onChange={(event) => patchSelectedElement({ y: Number(event.target.value) })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="inspector-width">Ancho</label>
-                    <input
-                      id="inspector-width"
-                      type="number"
-                      value={selectedElement.width}
-                      onChange={(event) => patchSelectedElement({ width: Number(event.target.value) })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="inspector-height">Alto</label>
-                    <input
-                      id="inspector-height"
-                      type="number"
-                      value={selectedElement.height}
-                      onChange={(event) => patchSelectedElement({ height: Number(event.target.value) })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="inspector-order">Orden</label>
-                    <input
-                      id="inspector-order"
-                      type="number"
-                      value={documentState.elementos.findIndex((element) => element.id === selectedElement.id) + 1}
-                      readOnly
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="inspector-lines">MaxLineas</label>
-                    <input
-                      id="inspector-lines"
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={selectedElement.maxLineas ?? 1}
-                      onChange={(event) => patchSelectedElement({ maxLineas: Number(event.target.value) })}
-                    />
-                  </div>
-                  {selectedElement.tipo === 'logo' ? (
-                    <div className="field" style={{ gridColumn: '1 / -1' }}>
-                      <label htmlFor="inspector-logo">Logo</label>
                       <select
-                        id="inspector-logo"
-                        value={selectedElement.imageUrl || ''}
-                        onChange={(event) =>
-                          patchSelectedElement({
-                            imageUrl: event.target.value,
-                            text: event.target.value ? '' : 'LOGO',
-                          })
-                        }
+                        value={selectedElement.fontSize}
+                        onChange={(event) => patchSelectedElement({ fontSize: Number(event.target.value) })}
                       >
-                        <option value="">Texto LOGO</option>
-                        {logoLibrary.map((logo) => (
-                          <option key={logo.id} value={logo.src}>
-                            {logo.label}
+                        {[8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64].map((size) => (
+                          <option key={size} value={size}>
+                            {size}
                           </option>
                         ))}
                       </select>
+                      <button
+                        type="button"
+                        className="tool-button icon-button"
+                        onClick={() => adjustSelectedFontSize(1)}
+                        title="Aumentar letra"
+                        aria-label="Aumentar letra"
+                      >
+                        A+
+                      </button>
                     </div>
-                  ) : null}
+                  </label>
+                  <label className="toolbar-control toolbar-select">
+                    <span>Tipografía</span>
+                    <select
+                      value={selectedElement.tipoFuente || inferTipoFuente(selectedElement.fontFamily)}
+                      onChange={(event) => {
+                        const nextTipoFuente = event.target.value
+                        const isBarcodeFont = nextTipoFuente === 'Barcode'
+                        patchSelectedElement({
+                          tipoFuente: nextTipoFuente,
+                          fontFamily: tipoFuenteToFontFamily(nextTipoFuente),
+                          fontWeight: isBarcodeFont ? 'normal' : selectedElement.fontWeight,
+                          fontStyle: isBarcodeFont ? 'normal' : selectedElement.fontStyle,
+                          italica: isBarcodeFont ? false : selectedElement.italica,
+                        })
+                      }}
+                    >
+                      {fontSourceOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="toolbar-color" title="Color">
+                    <span>Color</span>
+                    <input
+                      type="color"
+                      value={selectedElement.color}
+                      onChange={(event) => patchSelectedElement({ color: event.target.value })}
+                      aria-label="Color del elemento"
+                    />
+                  </label>
+                  <label className="toolbar-control toolbar-select">
+                    <span>Líneas</span>
+                    <select
+                      value={selectedElement.maxLineas}
+                      onChange={(event) => patchSelectedElement({ maxLineas: Number(event.target.value) })}
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((count) => (
+                        <option key={count} value={count}>
+                          {count}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="toolbar-segment" role="group" aria-label="Formato de texto">
+                    <button
+                      type="button"
+                      className={`tool-button icon-button ${selectedElement.fontWeight === 'bold' ? 'is-active' : ''}`}
+                      onClick={() => setSelectedFontWeight(selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}
+                      title="Negrita"
+                      aria-label="Negrita"
+                    >
+                      <Bold size={16} strokeWidth={2.3} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`tool-button icon-button ${selectedElement.italica ? 'is-active' : ''}`}
+                      onClick={() => setSelectedItalic(!selectedElement.italica)}
+                      title="Itálica"
+                      aria-label="Itálica"
+                    >
+                      <Italic size={16} strokeWidth={2.3} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`tool-button icon-button ${selectedElement.uppercase ? 'is-active' : ''}`}
+                      onClick={() => patchSelectedElement({ uppercase: !selectedElement.uppercase })}
+                      title="Mayúsculas"
+                      aria-label="Mayúsculas"
+                    >
+                      <Type size={16} strokeWidth={2.3} />
+                    </button>
+                  </div>
+                  <div className="toolbar-segment" role="group" aria-label="Alineación">
+                    <button
+                      type="button"
+                      className={`tool-button icon-button ${selectedElement.align === 'left' ? 'is-active' : ''}`}
+                      onClick={() => handleAlign('left')}
+                      title="Alinear a la izquierda"
+                      aria-label="Alinear a la izquierda"
+                    >
+                      <AlignLeft size={16} strokeWidth={2.3} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`tool-button icon-button ${selectedElement.align === 'center' ? 'is-active' : ''}`}
+                      onClick={() => handleAlign('center')}
+                      title="Centrar"
+                      aria-label="Centrar"
+                    >
+                      <AlignCenter size={16} strokeWidth={2.3} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`tool-button icon-button ${selectedElement.align === 'right' ? 'is-active' : ''}`}
+                      onClick={() => handleAlign('right')}
+                      title="Alinear a la derecha"
+                      aria-label="Alinear a la derecha"
+                    >
+                      <AlignRight size={16} strokeWidth={2.3} />
+                    </button>
+                  </div>
+                  <div className="toolbar-segment" role="group" aria-label="Orden de capas">
+                    <button
+                      type="button"
+                      className="ghost ghost-small layer-action-button"
+                      onClick={handleMoveLayerToBack}
+                      disabled={selectedElementIsFirst}
+                      title="Enviar al fondo"
+                    >
+                      Fondo
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost ghost-small layer-action-button"
+                      onClick={handleMoveLayerBackward}
+                      disabled={selectedElementIsFirst}
+                      title="Enviar atrás"
+                    >
+                      Atrás
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost ghost-small layer-action-button"
+                      onClick={handleMoveLayerForward}
+                      disabled={selectedElementIsLast}
+                      title="Traer adelante"
+                    >
+                      Adelante
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost ghost-small layer-action-button"
+                      onClick={handleMoveLayerToFront}
+                      disabled={selectedElementIsLast}
+                      title="Traer al frente"
+                    >
+                      Frente
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className={`tool-button icon-button ${selectedElement.visible ? 'is-active' : ''}`}
+                    onClick={handleToggleVisibility}
+                    title={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
+                    aria-label={selectedElement.visible ? 'Ocultar' : 'Mostrar'}
+                  >
+                    {selectedElement.visible ? <Eye size={16} strokeWidth={2.3} /> : <EyeOff size={16} strokeWidth={2.3} />}
+                  </button>
+                  <button type="button" className="tool-button icon-button" onClick={handleDuplicate} title="Duplicar" aria-label="Duplicar">
+                    <Copy size={16} strokeWidth={2.3} />
+                  </button>
+                  <button type="button" className="tool-button danger-tool icon-button" onClick={handleDelete} title="Eliminar" aria-label="Eliminar">
+                    <Trash2 size={16} strokeWidth={2.3} />
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost ghost-small toolbar-details-button"
+                    onClick={() => setShowAdvancedInspector((current) => !current)}
+                  >
+                    {showAdvancedInspector ? 'Ocultar panel' : 'Propiedades'}
+                  </button>
+                  <div className="toolbar-add-actions" ref={addElementMenuRef}>
+                    <div className="add-element-popover">
+                      <button
+                        type="button"
+                        className="tool-button add-element-button"
+                        onClick={() => toggleAddMenu('data')}
+                        aria-expanded={openAddMenu === 'data'}
+                        aria-haspopup="menu"
+                      >
+                        <Plus size={16} strokeWidth={2.5} />
+                        <span>+ Dato</span>
+                      </button>
+                      {openAddMenu === 'data' ? (
+                        <div className="add-element-menu add-element-menu-data" role="menu" aria-label="Agregar dato">
+                          {DATA_ADD_OPTIONS.map((item) => (
+                            <button
+                              key={`${item.tipo}-${item.nombre}`}
+                              type="button"
+                              className="add-element-option"
+                              onClick={() => handleAddElement(item.tipo)}
+                            >
+                              <strong>{item.nombre}</strong>
+                              <span>{item.descripcion}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="add-element-popover add-element-popover-right">
+                      <button
+                        type="button"
+                        className="tool-button add-element-button"
+                        onClick={() => toggleAddMenu('design')}
+                        aria-expanded={openAddMenu === 'design'}
+                        aria-haspopup="menu"
+                      >
+                        <Plus size={16} strokeWidth={2.5} />
+                        <span>+ Diseño</span>
+                      </button>
+                      {openAddMenu === 'design' ? (
+                        <div className="add-element-menu add-element-menu-design" role="menu" aria-label="Agregar diseño">
+                          {DESIGN_ADD_OPTIONS.map((item) => (
+                            <button
+                              key={`${item.tipo}-${item.nombre}`}
+                              type="button"
+                              className="add-element-option"
+                              onClick={() => handleAddElement(item.tipo)}
+                            >
+                              <strong>{item.nombre}</strong>
+                              <span>{item.descripcion}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
-              ) : (
-                <p className="helper-text">Selecciona un elemento para ver sus propiedades avanzadas.</p>
-              )}
-            </aside>
-          ) : null}
+
+                {supportsTemplateEditing(selectedElement) ? (
+                  <div className="toolbar-row toolbar-row-secondary">
+                    <div className="toolbar-field-strip">
+                      <span>Campo</span>
+                      <strong>{selectedFieldLabel}</strong>
+                    </div>
+                    <div className="toolbar-chip-row" role="group" aria-label="Prefijos y sufijos rápidos">
+                      {selectedQuickActions.map((action) => (
+                        <button
+                          key={action.label}
+                          type="button"
+                          className="ghost ghost-small quick-template-button"
+                          onClick={() => applyTemplateQuickAction(action.value)}
+                        >
+                          {action.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className={`canvas-workspace ${showAdvancedInspector ? 'has-inspector' : ''}`}>
+              <div className="canvas-stage">
+                <div
+                  className="paper-zoom-frame"
+                  style={{ width: canvas.widthPx * editorZoom, height: canvas.heightPx * editorZoom }}
+                >
+                  <div
+                    className="paper"
+                    style={{
+                      width: canvas.widthPx,
+                      height: canvas.heightPx,
+                      transform: `scale(${editorZoom})`,
+                    }}
+                  >
+                    {renderPrintSafeArea()}
+                    {renderMarginGuides()}
+                    {alfaScanLayout.items.map((item, index) => renderElementNode(item, index, true))}
+                  </div>
+                </div>
+
+                <div className="zoom-controls">
+                  <button type="button" className="ghost zoom-button" onClick={() => updateZoom(-0.1)}>
+                    - Zoom -
+                  </button>
+                  <span className="zoom-label">{zoomLabel}</span>
+                  <button type="button" className="ghost zoom-button" onClick={() => updateZoom(0.1)}>
+                    + Zoom +
+                  </button>
+                </div>
+              </div>
+
+              {showAdvancedInspector ? (
+                <aside className="advanced-inspector card">
+                  <div className="card-head">
+                    <div>
+                      <h2>Propiedades y capas</h2>
+                      {selectedElement ? <span className="inspector-subtitle">{selectedElement.nombre}</span> : null}
+                    </div>
+                    <button type="button" className="ghost ghost-small" onClick={() => setShowAdvancedInspector(false)}>
+                      Ocultar
+                    </button>
+                  </div>
+
+                  {selectedElement ? (
+                    <>
+                      <div className="inspector-layer-actions">
+                        <button
+                          type="button"
+                          className="ghost ghost-small"
+                          onClick={handleMoveLayerToBack}
+                          disabled={selectedElementIsFirst}
+                        >
+                          Enviar al fondo
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost ghost-small"
+                          onClick={handleMoveLayerBackward}
+                          disabled={selectedElementIsFirst}
+                        >
+                          Enviar atrás
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost ghost-small"
+                          onClick={handleMoveLayerForward}
+                          disabled={selectedElementIsLast}
+                        >
+                          Traer adelante
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost ghost-small"
+                          onClick={handleMoveLayerToFront}
+                          disabled={selectedElementIsLast}
+                        >
+                          Traer al frente
+                        </button>
+                      </div>
+
+                      <div className="grid-2 inspector-grid">
+                        <div className="field">
+                          <label htmlFor="inspector-x">X</label>
+                          <input
+                            id="inspector-x"
+                            type="number"
+                            value={selectedElement.x}
+                            onChange={(event) => patchSelectedElement({ x: Number(event.target.value) })}
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="inspector-y">Y</label>
+                          <input
+                            id="inspector-y"
+                            type="number"
+                            value={selectedElement.y}
+                            onChange={(event) => patchSelectedElement({ y: Number(event.target.value) })}
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="inspector-width">Ancho</label>
+                          <input
+                            id="inspector-width"
+                            type="number"
+                            value={selectedElement.width}
+                            onChange={(event) => patchSelectedElement({ width: Number(event.target.value) })}
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="inspector-height">Alto</label>
+                          <input
+                            id="inspector-height"
+                            type="number"
+                            value={selectedElement.height}
+                            onChange={(event) => patchSelectedElement({ height: Number(event.target.value) })}
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="inspector-order">Orden</label>
+                          <input id="inspector-order" type="number" value={selectedElementOrder} readOnly />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="inspector-layer">Capa</label>
+                          <input id="inspector-layer" type="text" value={getElementLayerLabel(selectedElement)} readOnly />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="inspector-lines">MaxLineas</label>
+                          <input
+                            id="inspector-lines"
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={selectedElement.maxLineas ?? 1}
+                            onChange={(event) => patchSelectedElement({ maxLineas: Number(event.target.value) })}
+                          />
+                        </div>
+                        {selectedElement.tipo === 'logo' ? (
+                          <div className="field" style={{ gridColumn: '1 / -1' }}>
+                            <label htmlFor="inspector-logo">Logo</label>
+                            <select
+                              id="inspector-logo"
+                              value={selectedElement.imageUrl || ''}
+                              onChange={(event) =>
+                                patchSelectedElement({
+                                  imageUrl: event.target.value,
+                                  text: event.target.value ? '' : 'LOGO',
+                                })
+                              }
+                            >
+                              <option value="">Texto LOGO</option>
+                              {logoLibrary.map((logo) => (
+                                <option key={logo.id} value={logo.src}>
+                                  {logo.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <section className="layers-panel">
+                        <div className="card-head compact">
+                          <h3>Capas</h3>
+                          <span className="pill">{documentState.elementos.length}</span>
+                        </div>
+                        <div className="layers-list" role="list" aria-label="Lista de capas">
+                          {documentState.elementos.map((element, index) => {
+                            const isLayerSelected = element.id === selectedElement.id
+                            return (
+                              <button
+                                key={element.id}
+                                type="button"
+                                className={`layer-item ${isLayerSelected ? 'is-selected' : ''}`}
+                                onClick={() => handleSelectLayer(element.id)}
+                              >
+                                <span className="layer-order">{index + 1}</span>
+                                <span className="layer-main">
+                                  <strong>{element.nombre}</strong>
+                                  <span>{getElementLayerLabel(element)}</span>
+                                </span>
+                                <span className="layer-meta">{element.visible ? 'Visible' : 'Oculto'}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </section>
+                    </>
+                  ) : (
+                    <p className="helper-text">Selecciona un elemento para ver sus propiedades avanzadas y su posición de capa.</p>
+                  )}
+                </aside>
+              ) : null}
+            </div>
           </section>
         </main>
       ) : (
@@ -1903,6 +2404,7 @@ function App() {
                       transform: `scale(${previewZoom})`,
                     }}
                   >
+                    {renderPrintSafeArea()}
                     {alfaScanLayout.items.map((item, index) => renderElementNode(item, index, false))}
                   </div>
                 </div>

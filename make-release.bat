@@ -23,12 +23,15 @@ mkdir "%RELEASE_DIR%" >nul 2>nul
 mkdir "%RELEASE_DIR%\dist" >nul 2>nul
 mkdir "%RELEASE_DIR%\server" >nul 2>nul
 mkdir "%NODE_RUNTIME_DIR%" >nul 2>nul
+mkdir "%RELEASE_DIR%\Instalador" >nul 2>nul
 
 copy /y "package.json" "%RELEASE_DIR%\" >nul
 copy /y "package-lock.json" "%RELEASE_DIR%\" >nul
 copy /y ".env.production" "%RELEASE_DIR%\" >nul
 if exist "sql-connection.json" copy /y "sql-connection.json" "%RELEASE_DIR%\" >nul
 copy /y "install-production.bat" "%RELEASE_DIR%\" >nul
+copy /y "Instalador\LEEME-CLIENTE.txt" "%RELEASE_DIR%\" >nul
+copy /y "Instalador\*.cmd" "%RELEASE_DIR%\Instalador\" >nul
 copy /y "server\sql-api.mjs" "%RELEASE_DIR%\server\" >nul
 xcopy /e /i /y "dist\*" "%RELEASE_DIR%\dist\" >nul
 

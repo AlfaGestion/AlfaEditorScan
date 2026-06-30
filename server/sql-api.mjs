@@ -559,6 +559,7 @@ function isElementType(value) {
     value === 'fecha' ||
     value === 'textoFijo' ||
     value === 'linea' ||
+    value === 'rectangulo' ||
     value === 'logo'
   )
 }
@@ -576,11 +577,13 @@ function mapTypeToSql(element) {
   if (tipo === 'codigoBarra') return isBarcodeGraphicElement(element) ? 'codigobarra' : 'texto'
   if (tipo === 'codigoBarraTexto') return 'texto'
   if (tipo === 'linea') return 'linea'
+  if (tipo === 'rectangulo') return 'rectangulo'
   if (tipo === 'textoFijo') return 'texto'
   return 'texto'
 }
 
-function mapFieldToSql(tipo) {
+function mapFieldToSql(elementOrType) {
+  const tipo = typeof elementOrType === 'string' ? elementOrType : elementOrType?.tipo
   switch (tipo) {
     case 'empresa':
       return 'Empresa'
@@ -599,6 +602,8 @@ function mapFieldToSql(tipo) {
       return 'Fecha'
     case 'textoFijo':
       return 'TextoFijo'
+    case 'rectangulo':
+      return null
     case 'linea':
       return 'TextoFijo'
     case 'logo':
@@ -610,7 +615,9 @@ function mapFieldToSql(tipo) {
 
 function getFixedText(element) {
   if (element.tipo === 'textoFijo') return element.text && element.text.trim() ? element.text : null
+  if (element.tipo === 'precio') return element.text && element.text.trim() ? element.text : null
   if (element.tipo === 'linea') return '------------'
+  if (element.tipo === 'rectangulo') return null
   if (element.tipo === 'logo') return element.text || 'Logo'
   return null
 }
@@ -625,6 +632,57 @@ async function hasColumn(pool, tableName, columnName) {
       SELECT CASE WHEN COL_LENGTH('${tableName}', '${columnName}') IS NULL THEN 0 ELSE 1 END AS HasColumn;
     `)
   return Boolean(result.recordset?.[0]?.HasColumn)
+}
+
+const SCAN_REPORTE_REQUIRED_COLUMNS = [
+  { name: 'Descripcion', definition: 'NVARCHAR(250) NULL' },
+  { name: 'AnchoPapelMm', definition: 'INT NOT NULL DEFAULT ((80)) WITH VALUES' },
+  { name: 'AltoMm', definition: 'INT NULL' },
+  { name: 'Activo', definition: 'BIT NOT NULL DEFAULT ((1)) WITH VALUES' },
+  { name: 'EsPredeterminado', definition: 'BIT NOT NULL DEFAULT ((0)) WITH VALUES' },
+  { name: 'MargenIzq', definition: 'INT NOT NULL DEFAULT ((0)) WITH VALUES' },
+  { name: 'MargenSub', definition: 'INT NOT NULL DEFAULT ((0)) WITH VALUES' },
+  { name: 'MargenDer', definition: 'INT NOT NULL DEFAULT ((0)) WITH VALUES' },
+  { name: 'MargenInf', definition: 'INT NOT NULL DEFAULT ((0)) WITH VALUES' },
+  { name: 'FechaAlta', definition: 'DATETIME NOT NULL DEFAULT (GETDATE()) WITH VALUES' },
+  { name: 'FechaModificacion', definition: 'DATETIME NULL' },
+]
+
+const SCAN_REPORTE_DETALLE_REQUIRED_COLUMNS = [
+  { name: 'Campo', definition: 'NVARCHAR(50) NULL' },
+  { name: 'TextoFijo', definition: 'NVARCHAR(250) NULL' },
+  { name: 'TipoFuente', definition: 'NVARCHAR(100) NULL' },
+  { name: 'X', definition: 'INT NOT NULL DEFAULT ((0)) WITH VALUES' },
+  { name: 'Y', definition: 'INT NOT NULL DEFAULT ((0)) WITH VALUES' },
+  { name: 'Ancho', definition: 'INT NOT NULL DEFAULT ((100)) WITH VALUES' },
+  { name: 'Alto', definition: 'INT NOT NULL DEFAULT ((30)) WITH VALUES' },
+  { name: 'TamanoFuente', definition: 'INT NOT NULL DEFAULT ((18)) WITH VALUES' },
+  { name: 'Negrita', definition: 'BIT NOT NULL DEFAULT ((0)) WITH VALUES' },
+  { name: 'Italica', definition: 'BIT NOT NULL DEFAULT ((0)) WITH VALUES' },
+  { name: 'Alineacion', definition: "NVARCHAR(20) NOT NULL DEFAULT (N'center') WITH VALUES" },
+  { name: 'Visible', definition: 'BIT NOT NULL DEFAULT ((1)) WITH VALUES' },
+  { name: 'Orden', definition: 'INT NOT NULL DEFAULT ((0)) WITH VALUES' },
+  { name: 'MaxLineas', definition: 'INT NOT NULL DEFAULT ((1)) WITH VALUES' },
+  { name: 'Mayuscula', definition: 'BIT NOT NULL DEFAULT ((0)) WITH VALUES' },
+  { name: 'FechaModificacion', definition: 'DATETIME NULL' },
+]
+
+async function ensureColumns(pool, tableName, columns) {
+  for (const column of columns) {
+    const exists = await hasColumn(pool, tableName, column.name)
+    if (exists) continue
+
+    log('SQL schema patch: adding missing column', { tableName, column: column.name })
+    await pool.request().query(`
+      ALTER TABLE ${tableName}
+      ADD ${quoteSqlIdentifier(column.name)} ${column.definition};
+    `)
+  }
+}
+
+async function ensureScanSchema(pool) {
+  await ensureColumns(pool, 'dbo.Scan_Reporte', SCAN_REPORTE_REQUIRED_COLUMNS)
+  await ensureColumns(pool, 'dbo.Scan_ReporteDetalle', SCAN_REPORTE_DETALLE_REQUIRED_COLUMNS)
 }
 
 function normalizeDocument(document) {
@@ -642,34 +700,92 @@ function normalizeDocument(document) {
     nombre: typeof document.nombre === 'string' ? document.nombre : 'Gondola',
     anchoPapelMm: toNumber(document.anchoPapelMm, 80),
     altoPapelMm: toNumber(document.altoPapelMm, 60),
+    margenImpresion: {
+      left: Math.max(0, toNumber(document.margenImpresion?.left, 0)),
+      top: Math.max(0, toNumber(document.margenImpresion?.top, 0)),
+      right: Math.max(0, toNumber(document.margenImpresion?.right, 0)),
+      bottom: Math.max(0, toNumber(document.margenImpresion?.bottom, 0)),
+    },
     activo: document.activo !== false,
     esPredeterminado: document.esPredeterminado === true,
-    elementos: elementos.map((item, index) => {
-      const tipo = isElementType(item?.tipo) ? item.tipo : 'textoFijo'
-      return {
-        id: typeof item?.id === 'string' ? item.id : `imported_${index}`,
-        tipo,
-        nombre: typeof item?.nombre === 'string' ? item.nombre : tipo,
-        x: toNumber(item?.x, 0),
-        y: toNumber(item?.y, 0),
-        width: toNumber(item?.width, 100),
-        height: toNumber(item?.height, 24),
-        fontSize: toNumber(item?.fontSize, 14),
-        fontWeight: item?.fontWeight === 'normal' ? 'normal' : 'bold',
-        fontStyle: item?.fontStyle === 'italic' ? 'italic' : 'normal',
-        italica: item?.italica === true || item?.fontStyle === 'italic',
-        tipoFuente: normalizeTipoFuente(item?.tipoFuente ?? item?.TipoFuente ?? item?.fontFamily),
-        align: item?.align === 'center' || item?.align === 'right' ? item.align : 'left',
-        visible: item?.visible !== false,
-        color: typeof item?.color === 'string' ? item.color : '#111827',
-        text: typeof item?.text === 'string' ? item.text : '',
-        imageUrl: typeof item?.imageUrl === 'string' ? item.imageUrl : '',
-        lineHeight: toNumber(item?.lineHeight, 1.15),
-        uppercase: item?.uppercase === true,
-        maxLineas: toNumber(item?.maxLineas, tipo === 'descripcion' ? 3 : tipo === 'textoFijo' ? 2 : 1),
-      }
-    }),
+    elementos: normalizeDocumentElements(elementos),
   }
+}
+
+function getSqlFieldKeyForElement(element) {
+  if (element?.tipo === 'empresa') return 'Empresa'
+  if (element?.tipo === 'descripcion') return 'Descripcion'
+  if (element?.tipo === 'precio') return 'Precio'
+  if (element?.tipo === 'codigoArticulo') return 'CodigoArticulo'
+  if (element?.tipo === 'codigoBarra' || element?.tipo === 'codigoBarraTexto') return 'CodigoBarra'
+  if (element?.tipo === 'stock') return 'Stock'
+  if (element?.tipo === 'fecha') return 'Fecha'
+  return null
+}
+
+function isLegacyDescripcionPlaceholderDetail(detail) {
+  const tipoElemento = String(detail?.TipoElemento ?? '').trim().toLowerCase()
+  const campo = String(detail?.Campo ?? '').trim().toLowerCase()
+  const textoFijo = String(detail?.TextoFijo ?? '').trim()
+  return tipoElemento === 'texto' && campo === 'textofijo' && textoFijo === '{descripcion}'
+}
+
+function normalizeDocumentElements(items) {
+  const explicitDescripcionExists = items.some((item) => item?.tipo === 'descripcion')
+  const seen = new Set()
+  const normalized = []
+
+  for (const [index, item] of items.entries()) {
+    const tipo = isElementType(item?.tipo) ? item.tipo : 'textoFijo'
+    const textValue = typeof item?.text === 'string' ? item.text : ''
+
+    if (tipo === 'textoFijo' && textValue.trim().toLowerCase() === '{descripcion}' && explicitDescripcionExists) {
+      continue
+    }
+
+    const nextTipo = tipo === 'textoFijo' && textValue.trim().toLowerCase() === '{descripcion}' ? 'descripcion' : tipo
+    const next = {
+      id: typeof item?.id === 'string' ? item.id : `imported_${index}`,
+      tipo: nextTipo,
+      nombre: typeof item?.nombre === 'string' ? item.nombre : nextTipo,
+      x: Math.max(0, toNumber(item?.x, 0)),
+      y: Math.max(0, toNumber(item?.y, 0)),
+      width: Math.max(nextTipo === 'linea' ? 2 : 24, toNumber(item?.width, 100)),
+      height: Math.max(nextTipo === 'linea' ? 2 : 12, toNumber(item?.height, 24)),
+      fontSize: toNumber(item?.fontSize, 14),
+      fontWeight: item?.fontWeight === 'normal' ? 'normal' : 'bold',
+      fontStyle: item?.fontStyle === 'italic' ? 'italic' : 'normal',
+      italica: item?.italica === true || item?.fontStyle === 'italic',
+      tipoFuente: normalizeTipoFuente(item?.tipoFuente ?? item?.TipoFuente ?? item?.fontFamily),
+      align: item?.align === 'center' || item?.align === 'right' ? item.align : 'left',
+      visible: item?.visible !== false,
+      color: typeof item?.color === 'string' ? item.color : '#111827',
+      text:
+        nextTipo === 'descripcion'
+          ? ''
+          : nextTipo === 'textoFijo' || nextTipo === 'precio'
+            ? typeof item?.text === 'string'
+              ? item.text.trim()
+              : ''
+            : typeof item?.text === 'string'
+              ? item.text
+              : '',
+      imageUrl: typeof item?.imageUrl === 'string' ? item.imageUrl : '',
+      lineHeight: toNumber(item?.lineHeight, 1.15),
+      uppercase: item?.uppercase === true,
+      maxLineas: toNumber(item?.maxLineas, nextTipo === 'descripcion' ? 3 : nextTipo === 'textoFijo' ? 2 : 1),
+    }
+
+    const fieldKey = getSqlFieldKeyForElement(next)
+    if (fieldKey) {
+      if (seen.has(fieldKey)) continue
+      seen.add(fieldKey)
+    }
+
+    normalized.push(next)
+  }
+
+  return normalized
 }
 
 function getDetalleAlineacion(element) {
@@ -682,9 +798,17 @@ function buildVerificationSnapshotFromDocument(document) {
     nombre: typeof document.nombre === 'string' ? document.nombre : 'Gondola',
     anchoPapelMm: toNumber(document.anchoPapelMm, 80),
     altoMm: toNumber(document.altoPapelMm, 60),
+    margenImpresion: {
+      left: Math.max(0, toNumber(document.margenImpresion?.left, 0)),
+      top: Math.max(0, toNumber(document.margenImpresion?.top, 0)),
+      right: Math.max(0, toNumber(document.margenImpresion?.right, 0)),
+      bottom: Math.max(0, toNumber(document.margenImpresion?.bottom, 0)),
+    },
+    activo: document.activo !== false,
+    esPredeterminado: document.esPredeterminado === true,
     detalles: document.elementos.map((element, index) => ({
-      tipoElemento: mapTypeToSql(element.tipo),
-      campo: mapFieldToSql(element.tipo),
+      tipoElemento: mapTypeToSql(element),
+      campo: mapFieldToSql(element),
       textoFijo: getFixedText(element),
       tipoFuente: normalizeTipoFuente(element.tipoFuente ?? element.fontFamily),
       x: Math.round(element.x),
@@ -716,6 +840,10 @@ function compareVerificationSnapshots(expected, actual) {
   compareField('nombre', expected.nombre, actual.nombre)
   compareField('anchoPapelMm', expected.anchoPapelMm, actual.anchoPapelMm)
   compareField('altoMm', expected.altoMm, actual.altoMm)
+  compareField('margenImpresion.left', expected.margenImpresion.left, actual.margenImpresion.left)
+  compareField('margenImpresion.top', expected.margenImpresion.top, actual.margenImpresion.top)
+  compareField('margenImpresion.right', expected.margenImpresion.right, actual.margenImpresion.right)
+  compareField('margenImpresion.bottom', expected.margenImpresion.bottom, actual.margenImpresion.bottom)
   compareField('activo', expected.activo, actual.activo)
   compareField('esPredeterminado', expected.esPredeterminado, actual.esPredeterminado)
   compareField('detalles.length', expected.detalles.length, actual.detalles.length)
@@ -771,6 +899,51 @@ function rowToVerificationDetail(row, index) {
   }
 }
 
+function getVerificationFieldKey(detail) {
+  const tipoElemento = String(detail?.tipoElemento ?? '').trim().toLowerCase()
+  const campo = String(detail?.campo ?? '').trim().toLowerCase()
+
+  if (tipoElemento === 'dato' || campo === 'empresa') return 'Empresa'
+  if (tipoElemento === 'texto' && campo === 'descripcion') return 'Descripcion'
+  if (tipoElemento === 'precio' || campo === 'precio') return 'Precio'
+  if (campo === 'codigoarticulo') return 'CodigoArticulo'
+  if (campo === 'codigobarra') return 'CodigoBarra'
+  if (campo === 'stock') return 'Stock'
+  if (campo === 'fecha') return 'Fecha'
+  return null
+}
+
+function normalizeVerificationDetails(details) {
+  const explicitDescripcionExists = details.some((detail) => String(detail?.tipoElemento ?? '').trim().toLowerCase() === 'texto' && String(detail?.campo ?? '').trim().toLowerCase() === 'descripcion')
+  const seen = new Set()
+  const normalized = []
+
+  for (const detail of details) {
+    if (isLegacyDescripcionPlaceholderDetail(detail) && explicitDescripcionExists) {
+      continue
+    }
+
+    const next = isLegacyDescripcionPlaceholderDetail(detail)
+      ? {
+          ...detail,
+          tipoElemento: 'texto',
+          campo: 'Descripcion',
+          textoFijo: null,
+        }
+      : detail
+
+    const fieldKey = getVerificationFieldKey(next)
+    if (fieldKey) {
+      if (seen.has(fieldKey)) continue
+      seen.add(fieldKey)
+    }
+
+    normalized.push(next)
+  }
+
+  return normalized
+}
+
 async function loadReportSnapshotByCodigo(codigo) {
   if (!isSqlConnectionConfigured()) {
     throw new Error('Faltan datos de conexion SQL. Revisar sql-connection.json o .env.')
@@ -781,6 +954,7 @@ async function loadReportSnapshotByCodigo(codigo) {
 
   try {
     await pool.connect()
+    await ensureScanSchema(pool)
     const reportResult = await pool
       .request()
       .input('Codigo', sql.NVarChar(50), normalizedCodigo)
@@ -792,7 +966,11 @@ async function loadReportSnapshotByCodigo(codigo) {
           Activo,
           EsPredeterminado,
           AnchoPapelMm,
-          AltoMm
+          AltoMm,
+          MargenIzq,
+          MargenSub,
+          MargenDer,
+          MargenInf
         FROM dbo.Scan_Reporte
         WHERE Codigo = @Codigo;
       `)
@@ -831,6 +1009,7 @@ async function loadReportSnapshotByCodigo(codigo) {
     const details = Array.isArray(detailResult.recordset)
       ? detailResult.recordset.map((row, index) => rowToVerificationDetail(row, index))
       : []
+    const normalizedDetails = normalizeVerificationDetails(details)
 
     return {
       codigo: normalizeReportCode(report.Codigo),
@@ -839,7 +1018,13 @@ async function loadReportSnapshotByCodigo(codigo) {
       esPredeterminado: Boolean(report.EsPredeterminado),
       anchoPapelMm: toNumber(report.AnchoPapelMm, 80),
       altoMm: toNumber(report.AltoMm, 60),
-      detalles: details,
+      margenImpresion: {
+        left: Math.max(0, toNumber(report.MargenIzq, 0)),
+        top: Math.max(0, toNumber(report.MargenSub, 0)),
+        right: Math.max(0, toNumber(report.MargenDer, 0)),
+        bottom: Math.max(0, toNumber(report.MargenInf, 0)),
+      },
+      detalles: normalizedDetails,
     }
   } finally {
     await pool.close()
@@ -894,7 +1079,7 @@ async function insertDetailRows(transaction, document, reportId) {
     const request = new sql.Request(transaction)
     request.input('IdReporte', sql.Int, reportId)
     request.input('TipoElemento', sql.NVarChar(30), mapTypeToSql(element))
-    request.input('Campo', sql.NVarChar(50), mapFieldToSql(element.tipo))
+    request.input('Campo', sql.NVarChar(50), mapFieldToSql(element))
     request.input('TextoFijo', sql.NVarChar(250), getFixedText(element))
     request.input('TipoFuente', sql.NVarChar(100), normalizeTipoFuente(element.tipoFuente ?? element.fontFamily))
     request.input('X', sql.Int, Math.round(element.x))
@@ -946,6 +1131,7 @@ async function saveDocumentToSqlServer(document) {
   const pool = createSqlPool()
 
   await pool.connect()
+  await ensureScanSchema(pool)
   const transaction = new sql.Transaction(pool)
   await transaction.begin()
 
@@ -956,6 +1142,10 @@ async function saveDocumentToSqlServer(document) {
     request.input('Descripcion', sql.NVarChar(250), `Layout generado desde EditorScan`)
     request.input('AnchoPapelMm', sql.Int, normalized.anchoPapelMm)
     request.input('AltoMm', sql.Int, normalized.altoPapelMm)
+    request.input('MargenIzq', sql.Int, normalized.margenImpresion.left)
+    request.input('MargenSub', sql.Int, normalized.margenImpresion.top)
+    request.input('MargenDer', sql.Int, normalized.margenImpresion.right)
+    request.input('MargenInf', sql.Int, normalized.margenImpresion.bottom)
     request.input('Activo', sql.Bit, normalized.activo ? 1 : 0)
     request.input('EsPredeterminado', sql.Bit, normalized.esPredeterminado ? 1 : 0)
 
@@ -968,6 +1158,10 @@ async function saveDocumentToSqlServer(document) {
           Descripcion = @Descripcion,
           AnchoPapelMm = @AnchoPapelMm,
           AltoMm = @AltoMm,
+          MargenIzq = @MargenIzq,
+          MargenSub = @MargenSub,
+          MargenDer = @MargenDer,
+          MargenInf = @MargenInf,
           Activo = @Activo,
           EsPredeterminado = @EsPredeterminado,
           FechaModificacion = GETDATE()
@@ -981,6 +1175,10 @@ async function saveDocumentToSqlServer(document) {
           Descripcion,
           AnchoPapelMm,
           AltoMm,
+          MargenIzq,
+          MargenSub,
+          MargenDer,
+          MargenInf,
           Activo,
           EsPredeterminado,
           FechaAlta,
@@ -992,6 +1190,10 @@ async function saveDocumentToSqlServer(document) {
           @Descripcion,
           @AnchoPapelMm,
           @AltoMm,
+          @MargenIzq,
+          @MargenSub,
+          @MargenDer,
+          @MargenInf,
           @Activo,
           @EsPredeterminado,
           GETDATE(),

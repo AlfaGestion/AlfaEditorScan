@@ -14,6 +14,7 @@ export type ElementType =
   | 'fecha'
   | 'textoFijo'
   | 'linea'
+  | 'rectangulo'
   | 'logo'
 
 export type TextAlign = 'left' | 'center' | 'right'
@@ -32,9 +33,17 @@ export interface LabelDocument {
   nombre: string
   anchoPapelMm: number
   altoPapelMm: number
+  margenImpresion: PrintMargins
   activo: boolean
   esPredeterminado: boolean
   elementos: EditorElement[]
+}
+
+export interface PrintMargins {
+  left: number
+  top: number
+  right: number
+  bottom: number
 }
 
 export interface EditorElement {
@@ -82,6 +91,22 @@ export const sampleData: SampleData = {
   date: new Intl.DateTimeFormat('es-AR').format(new Date()),
 }
 
+export const DEFAULT_PRINT_MARGINS: PrintMargins = {
+  left: 0,
+  top: 0,
+  right: 0,
+  bottom: 0,
+}
+
+export type PlaceholderToken =
+  | 'Empresa'
+  | 'Descripcion'
+  | 'Precio'
+  | 'CodigoArticulo'
+  | 'CodigoBarra'
+  | 'Stock'
+  | 'Fecha'
+
 export const paperFormats: PaperFormat[] = [
   {
     codigo: 'gondola',
@@ -123,18 +148,13 @@ export const elementPalette: Array<{ tipo: ElementType; nombre: string; descripc
   { tipo: 'fecha', nombre: 'Fecha', descripcion: 'Fecha de impresión o lote' },
   { tipo: 'textoFijo', nombre: 'Texto fijo', descripcion: 'Etiqueta libre editable' },
   { tipo: 'linea', nombre: 'Línea', descripcion: 'Separador visual' },
+  { tipo: 'rectangulo', nombre: 'Rectángulo', descripcion: 'Marco o bloque visual' },
   { tipo: 'logo', nombre: 'Logo', descripcion: 'Placeholder o imagen' },
 ]
 
 export const STORAGE_KEY = 'alfa-editor-scan:document'
 export const logoLibrary = [
-  { id: 'alfa_logo', label: 'Logo Alfa', src: '/logos/alfa_logo.png' },
-  { id: 'alfa_new_logo_editable', label: 'Logo nuevo editable', src: '/logos/alfa_new_logo_editable.png' },
-  { id: 'icon', label: 'Icono', src: '/logos/icon.png' },
-  { id: 'adaptive_icon', label: 'Adaptive icon', src: '/logos/adaptive-icon.png' },
-  { id: 'favicon', label: 'Favicon', src: '/logos/favicon.png' },
-  { id: 'splash', label: 'Splash', src: '/logos/splash.png' },
-  { id: 'splash_dark', label: 'Splash Dark', src: '/logos/splashDark.png' },
+  { id: 'icono', label: 'Icono', src: '/logos/icono.png' },
 ] as const
 
 export const fontSourceOptions = [
@@ -217,12 +237,22 @@ const defaultElementStyles = {
   maxLineas: 1,
 }
 
+const DESIGN_LAYER_TYPES = new Set<ElementType>(['linea', 'rectangulo', 'logo'])
+
 function uid(prefix = 'el'): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+function createFrameLine(base: EditorElement, patch: Partial<EditorElement>): EditorElement {
+  return {
+    ...base,
+    ...patch,
+    id: uid(),
+  }
 }
 
 function round(value: number): number {
@@ -244,10 +274,62 @@ export function getPaperFormat(codigo: FormatCode): PaperFormat {
   return paperFormats.find((format) => format.codigo === codigo) ?? paperFormats[0]
 }
 
+export function isDesignElementType(tipo: ElementType): boolean {
+  return DESIGN_LAYER_TYPES.has(tipo)
+}
+
+export function getElementLayerLabel(element: Pick<EditorElement, 'tipo'>): 'Diseño' | 'Dato' {
+  return isDesignElementType(element.tipo) ? 'Diseño' : 'Dato'
+}
+
 export function getCanvasSize(document: Pick<LabelDocument, 'anchoPapelMm' | 'altoPapelMm'>) {
   return {
     widthPx: mmToPx(document.anchoPapelMm),
     heightPx: mmToPx(document.altoPapelMm),
+  }
+}
+
+export function normalizePrintMargins(
+  margins: Partial<PrintMargins> | null | undefined,
+  canvas?: { widthPx: number; heightPx: number },
+): PrintMargins {
+  const next = {
+    left: Math.max(0, round(Number(margins?.left) || 0)),
+    top: Math.max(0, round(Number(margins?.top) || 0)),
+    right: Math.max(0, round(Number(margins?.right) || 0)),
+    bottom: Math.max(0, round(Number(margins?.bottom) || 0)),
+  }
+
+  if (!canvas) return next
+
+  const maxHorizontal = Math.max(0, canvas.widthPx - 24)
+  const maxVertical = Math.max(0, canvas.heightPx - 24)
+
+  if (next.left + next.right > maxHorizontal) {
+    const ratio = maxHorizontal / Math.max(1, next.left + next.right)
+    next.left = round(next.left * ratio)
+    next.right = round(next.right * ratio)
+  }
+
+  if (next.top + next.bottom > maxVertical) {
+    const ratio = maxVertical / Math.max(1, next.top + next.bottom)
+    next.top = round(next.top * ratio)
+    next.bottom = round(next.bottom * ratio)
+  }
+
+  return next
+}
+
+export function getPrintableArea(document: Pick<LabelDocument, 'anchoPapelMm' | 'altoPapelMm' | 'margenImpresion'>) {
+  const canvas = getCanvasSize(document)
+  const margins = normalizePrintMargins(document.margenImpresion, canvas)
+
+  return {
+    x: margins.left,
+    y: margins.top,
+    width: Math.max(24, canvas.widthPx - margins.left - margins.right),
+    height: Math.max(24, canvas.heightPx - margins.top - margins.bottom),
+    margins,
   }
 }
 
@@ -258,8 +340,8 @@ function scaleElement(element: EditorElement, scaleX: number, scaleY: number): E
     ...element,
     x: round(element.x * scaleX),
     y: round(element.y * scaleY),
-    width: Math.max(24, round(element.width * scaleX)),
-    height: Math.max(12, round(element.height * scaleY)),
+    width: Math.max(element.tipo === 'linea' ? 2 : 24, round(element.width * scaleX)),
+    height: Math.max(element.tipo === 'linea' ? 2 : 12, round(element.height * scaleY)),
     fontSize: Math.max(10, round(element.fontSize * averageScale)),
   }
 }
@@ -455,6 +537,7 @@ function createScaledDocument(format: PaperFormat): LabelDocument {
     nombre: format.nombre,
     anchoPapelMm: format.anchoPapelMm,
     altoPapelMm: format.altoPapelMm,
+    margenImpresion: { ...DEFAULT_PRINT_MARGINS },
     activo: true,
     esPredeterminado: false,
     elementos: baseElements().map((element) => scaleElement(element, scaleX, scaleY)),
@@ -480,9 +563,57 @@ export function scaleDocumentToFormat(
     nombre: format.nombre,
     anchoPapelMm: format.anchoPapelMm,
     altoPapelMm: format.altoPapelMm,
+    margenImpresion: normalizePrintMargins(document.margenImpresion, nextCanvas),
     activo: document.activo,
     esPredeterminado: document.esPredeterminado,
     elementos: document.elementos.map((element) => scaleElement(element, scaleX, scaleY)),
+  }
+}
+
+export function resizeDocumentPaper(
+  document: LabelDocument,
+  nextWidthMm: number,
+  nextHeightMm: number,
+  options: { scaleElements?: boolean; sourceSizeMm?: { widthMm: number; heightMm: number } } = {},
+): LabelDocument {
+  const safeWidthMm = clamp(Math.round(Number.isFinite(nextWidthMm) ? nextWidthMm : document.anchoPapelMm), 20, 120)
+  const safeHeightMm = clamp(Math.round(Number.isFinite(nextHeightMm) ? nextHeightMm : document.altoPapelMm), 10, 120)
+  const nextDocument = {
+    ...document,
+    codigo: 'custom' as FormatCode,
+    anchoPapelMm: safeWidthMm,
+    altoPapelMm: safeHeightMm,
+  }
+
+  const nextCanvas = getCanvasSize(nextDocument)
+  const nextMargins = normalizePrintMargins(document.margenImpresion, nextCanvas)
+
+  if (!options.scaleElements) {
+    return {
+      ...nextDocument,
+      margenImpresion: nextMargins,
+      elementos: [...document.elementos],
+    }
+  }
+
+  const sourceWidthMm = Math.max(1, Math.round(options.sourceSizeMm?.widthMm ?? document.anchoPapelMm))
+  const sourceHeightMm = Math.max(1, Math.round(options.sourceSizeMm?.heightMm ?? document.altoPapelMm))
+  const currentCanvas = getCanvasSize({ anchoPapelMm: sourceWidthMm, altoPapelMm: sourceHeightMm })
+  const scaleX = nextCanvas.widthPx / Math.max(1, currentCanvas.widthPx)
+  const scaleY = nextCanvas.heightPx / Math.max(1, currentCanvas.heightPx)
+  const averageScale = (scaleX + scaleY) / 2
+
+  return {
+    ...nextDocument,
+    margenImpresion: nextMargins,
+    elementos: document.elementos.map((element) => ({
+      ...element,
+      x: round(element.x * scaleX),
+      y: round(element.y * scaleY),
+      width: Math.max(element.tipo === 'linea' ? 2 : 24, round(element.width * scaleX)),
+      height: Math.max(element.tipo === 'linea' ? 2 : 12, round(element.height * scaleY)),
+      fontSize: Math.max(10, round(element.fontSize * averageScale)),
+    })),
   }
 }
 
@@ -544,6 +675,24 @@ function createElementDefaults(tipo: ElementType, index: number): EditorElement 
         uppercase: false,
         fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
       }
+    case 'rectangulo':
+      return {
+        ...common,
+        width: 120,
+        height: 64,
+        fontSize: 12,
+        fontWeight: 'normal',
+        align: 'left',
+        color: '#334155',
+        text: '',
+        imageUrl: '',
+        lineHeight: 1,
+        fontStyle: 'normal',
+        italica: false,
+        underline: false,
+        uppercase: false,
+        fontFamily: 'Aptos, Segoe UI, Arial, sans-serif',
+      }
     case 'logo':
       return {
         ...common,
@@ -572,9 +721,19 @@ export function addElement(document: LabelDocument, tipo: ElementType): LabelDoc
   element.x = clamp(element.x, 0, Math.max(0, canvas.widthPx - element.width))
   element.y = clamp(element.y, 0, Math.max(0, canvas.heightPx - element.height))
 
+  const firstContentIndex = document.elementos.findIndex((item) => !isDesignElementType(item.tipo))
+  const insertionIndex = isDesignElementType(tipo)
+    ? firstContentIndex < 0
+      ? document.elementos.length
+      : firstContentIndex
+    : document.elementos.length
+
+  const next = [...document.elementos]
+  next.splice(insertionIndex < 0 ? next.length : insertionIndex, 0, element)
+
   return {
     ...document,
-    elementos: [...document.elementos, element],
+    elementos: next,
   }
 }
 
@@ -606,6 +765,43 @@ export function removeElement(document: LabelDocument, elementId: string): Label
     ...document,
     elementos: document.elementos.filter((element) => element.id !== elementId),
   }
+}
+
+export function moveElementToIndex(document: LabelDocument, elementId: string, nextIndex: number): LabelDocument {
+  const currentIndex = document.elementos.findIndex((element) => element.id === elementId)
+  if (currentIndex < 0) return document
+
+  const clampedIndex = clamp(Math.round(nextIndex), 0, Math.max(0, document.elementos.length - 1))
+  if (clampedIndex === currentIndex) return document
+
+  const next = [...document.elementos]
+  const [moved] = next.splice(currentIndex, 1)
+  next.splice(clampedIndex, 0, moved)
+
+  return {
+    ...document,
+    elementos: next,
+  }
+}
+
+export function sendElementBackward(document: LabelDocument, elementId: string): LabelDocument {
+  const currentIndex = document.elementos.findIndex((element) => element.id === elementId)
+  if (currentIndex <= 0) return document
+  return moveElementToIndex(document, elementId, currentIndex - 1)
+}
+
+export function bringElementForward(document: LabelDocument, elementId: string): LabelDocument {
+  const currentIndex = document.elementos.findIndex((element) => element.id === elementId)
+  if (currentIndex < 0 || currentIndex >= document.elementos.length - 1) return document
+  return moveElementToIndex(document, elementId, currentIndex + 1)
+}
+
+export function sendElementToBack(document: LabelDocument, elementId: string): LabelDocument {
+  return moveElementToIndex(document, elementId, 0)
+}
+
+export function bringElementToFront(document: LabelDocument, elementId: string): LabelDocument {
+  return moveElementToIndex(document, elementId, document.elementos.length - 1)
 }
 
 export function updateElement(
@@ -666,6 +862,59 @@ export function stretchElement(document: LabelDocument, elementId: string, margi
   })
 }
 
+export function stretchLineHorizontally(document: LabelDocument, elementId: string): LabelDocument {
+  const canvas = getCanvasSize(document)
+  const element = getElementById(document, elementId)
+  if (!element || element.tipo !== 'linea') return document
+
+  return updateElement(document, elementId, {
+    x: 0,
+    width: canvas.widthPx,
+    height: Math.max(2, element.height),
+  })
+}
+
+export function stretchLineVertically(document: LabelDocument, elementId: string): LabelDocument {
+  const canvas = getCanvasSize(document)
+  const element = getElementById(document, elementId)
+  if (!element || element.tipo !== 'linea') return document
+
+  return updateElement(document, elementId, {
+    y: 0,
+    width: Math.max(2, element.width),
+    height: canvas.heightPx,
+  })
+}
+
+export function convertLineToFrame(document: LabelDocument, elementId: string): LabelDocument {
+  const element = getElementById(document, elementId)
+  if (!element || element.tipo !== 'linea') return document
+
+  const canvas = getCanvasSize(document)
+  const thickness = Math.max(2, Math.min(element.width, element.height))
+  const top = createFrameLine(element, { x: 0, y: 0, width: canvas.widthPx, height: thickness, nombre: 'Marco superior' })
+  const bottom = createFrameLine(element, {
+    x: 0,
+    y: Math.max(0, canvas.heightPx - thickness),
+    width: canvas.widthPx,
+    height: thickness,
+    nombre: 'Marco inferior',
+  })
+  const left = createFrameLine(element, { x: 0, y: 0, width: thickness, height: canvas.heightPx, nombre: 'Marco izquierdo' })
+  const right = createFrameLine(element, {
+    x: Math.max(0, canvas.widthPx - thickness),
+    y: 0,
+    width: thickness,
+    height: canvas.heightPx,
+    nombre: 'Marco derecho',
+  })
+
+  return {
+    ...document,
+    elementos: document.elementos.flatMap((item) => (item.id === elementId ? [top, bottom, left, right] : [item])),
+  }
+}
+
 export function toggleVisibility(document: LabelDocument, elementId: string): LabelDocument {
   const element = getElementById(document, elementId)
   if (!element) return document
@@ -713,12 +962,20 @@ export function getElementName(tipo: ElementType): string {
       return 'Texto fijo'
     case 'linea':
       return 'Línea'
+    case 'rectangulo':
+      return 'Rectángulo'
     case 'logo':
       return 'Logo'
   }
 }
 
 export function getElementDisplayValue(element: EditorElement, data: SampleData): string {
+  const templateText = getElementTemplateText(element)
+  if (templateText) {
+    const value = replaceSqlPlaceholders(templateText, data)
+    return element.uppercase ? value.toUpperCase() : value
+  }
+
   let value = ''
   switch (element.tipo) {
     case 'empresa':
@@ -746,7 +1003,10 @@ export function getElementDisplayValue(element: EditorElement, data: SampleData)
       value = data.date
       break
     case 'textoFijo':
-      value = replaceSqlPlaceholders(element.text || 'Texto fijo', data)
+      value = 'Texto fijo'
+      break
+    case 'rectangulo':
+      value = ''
       break
     case 'logo':
       value = element.text || 'LOGO'
@@ -757,6 +1017,69 @@ export function getElementDisplayValue(element: EditorElement, data: SampleData)
   }
 
   return element.uppercase ? value.toUpperCase() : value
+}
+
+export function getDefaultPlaceholderToken(tipo: ElementType): PlaceholderToken | null {
+  switch (tipo) {
+    case 'empresa':
+      return 'Empresa'
+    case 'descripcion':
+      return 'Descripcion'
+    case 'precio':
+      return 'Precio'
+    case 'codigoArticulo':
+      return 'CodigoArticulo'
+    case 'codigoBarra':
+    case 'codigoBarraTexto':
+      return 'CodigoBarra'
+    case 'stock':
+      return 'Stock'
+    case 'fecha':
+      return 'Fecha'
+    case 'rectangulo':
+      return null
+    default:
+      return null
+  }
+}
+
+export function getPlaceholderForElement(element: Pick<EditorElement, 'tipo'>): string | null {
+  const token = getDefaultPlaceholderToken(element.tipo)
+  return token ? `{${token}}` : null
+}
+
+export function getElementTemplateText(element: Pick<EditorElement, 'tipo' | 'text'>): string | null {
+  const customText = typeof element.text === 'string' ? element.text.trim() : ''
+  if (customText) return element.text
+  return getPlaceholderForElement(element)
+}
+
+export function parseTemplateAffixes(
+  source: string,
+  fallbackToken?: PlaceholderToken | null,
+): { prefix: string; suffix: string; placeholder: string | null } {
+  const normalized = typeof source === 'string' ? source : ''
+  const match = normalized.match(/\{([^}]+)\}/)
+  if (match) {
+    return {
+      prefix: normalized.slice(0, match.index ?? 0),
+      suffix: normalized.slice((match.index ?? 0) + match[0].length),
+      placeholder: match[0],
+    }
+  }
+
+  return {
+    prefix: normalized,
+    suffix: '',
+    placeholder: fallbackToken ? `{${fallbackToken}}` : null,
+  }
+}
+
+export function buildTemplateText(prefix: string, placeholder: string | null, suffix: string): string {
+  const nextPrefix = prefix ?? ''
+  const nextSuffix = suffix ?? ''
+  const nextPlaceholder = placeholder ?? ''
+  return `${nextPrefix}${nextPlaceholder}${nextSuffix}`
 }
 
 function replaceSqlPlaceholders(source: string, data: SampleData): string {
@@ -809,6 +1132,7 @@ export function parseDocumentJson(source: string, fallbackFormat: PaperFormat): 
       typeof parsed.anchoPapelMm === 'number' ? parsed.anchoPapelMm : fallbackFormat.anchoPapelMm,
     altoPapelMm:
       typeof parsed.altoPapelMm === 'number' ? parsed.altoPapelMm : fallbackFormat.altoPapelMm,
+    margenImpresion: normalizePrintMargins(parsed.margenImpresion),
     activo: typeof parsed.activo === 'boolean' ? parsed.activo : true,
     esPredeterminado: typeof parsed.esPredeterminado === 'boolean' ? parsed.esPredeterminado : false,
     elementos,
@@ -829,8 +1153,8 @@ function normalizeElement(value: unknown, index: number): EditorElement {
     nombre: typeof item.nombre === 'string' ? item.nombre : getElementName(tipo),
     x: toNumber(item.x, 20 + index * 12),
     y: toNumber(item.y, 20 + index * 12),
-    width: Math.max(24, toNumber(item.width, 120)),
-    height: Math.max(12, toNumber(item.height, 24)),
+    width: Math.max(tipo === 'linea' ? 2 : 24, toNumber(item.width, 120)),
+    height: Math.max(tipo === 'linea' ? 2 : 12, toNumber(item.height, 24)),
     fontSize: clamp(toNumber(item.fontSize, 14), 8, 80),
     fontWeight: item.fontWeight === 'normal' ? 'normal' : 'bold',
     fontStyle: item.fontStyle === 'italic' ? 'italic' : 'normal',
@@ -861,6 +1185,7 @@ function isElementType(value: unknown): value is ElementType {
     value === 'fecha' ||
     value === 'textoFijo' ||
     value === 'linea' ||
+    value === 'rectangulo' ||
     value === 'logo'
   )
 }
@@ -880,10 +1205,11 @@ export function buildSqlScript(document: LabelDocument): string {
   const detailRows = document.elementos
     .map((element, index) => {
       const detalle = editorElementToSqlDetalle(element, index + 1)
+      const campoLiteral = detalle.Campo === null ? 'NULL' : `N'${escapeSqlLiteral(detalle.Campo)}'`
       const textoFijoLiteral = detalle.TextoFijo === null ? 'NULL' : `N'${escapeSqlLiteral(detalle.TextoFijo)}'`
       const tipoFuenteLiteral = `N'${escapeSqlLiteral(detalle.TipoFuente || 'Default')}'`
 
-      return `  (@ReporteId, N'${detalle.TipoElemento}', N'${escapeSqlLiteral(detalle.Campo)}', ${textoFijoLiteral}, ${tipoFuenteLiteral}, ${detalle.X}, ${detalle.Y}, ${detalle.Ancho}, ${detalle.Alto}, ${detalle.TamanoFuente}, ${
+      return `  (@ReporteId, N'${detalle.TipoElemento}', ${campoLiteral}, ${textoFijoLiteral}, ${tipoFuenteLiteral}, ${detalle.X}, ${detalle.Y}, ${detalle.Ancho}, ${detalle.Alto}, ${detalle.TamanoFuente}, ${
         detalle.Negrita ? 1 : 0
       }, ${detalle.Italica ? 1 : 0}, N'${escapeSqlLiteral(detalle.Alineacion)}', ${detalle.Visible ? 1 : 0}, ${detalle.Orden}, ${detalle.MaxLineas}, ${
         detalle.Mayuscula ? 1 : 0
@@ -975,11 +1301,11 @@ ${detailRows};
 `
 }
 
-export type SqlTipoElemento = 'Dato' | 'texto' | 'precio' | 'codigobarra' | 'linea'
+export type SqlTipoElemento = 'Dato' | 'texto' | 'precio' | 'codigobarra' | 'linea' | 'rectangulo'
 
 export interface SqlDetalle {
   TipoElemento: SqlTipoElemento
-  Campo: 'Empresa' | 'Descripcion' | 'Precio' | 'CodigoArticulo' | 'CodigoBarra' | 'Stock' | 'Fecha' | 'TextoFijo' | 'Logo'
+  Campo: 'Empresa' | 'Descripcion' | 'Precio' | 'CodigoArticulo' | 'CodigoBarra' | 'Stock' | 'Fecha' | 'TextoFijo' | 'Logo' | null
   TextoFijo: string | null
   TipoFuente: string
   X: number
@@ -1020,6 +1346,7 @@ export interface SqlVerificationSnapshot {
   nombre: string
   anchoPapelMm: number
   altoMm: number | null
+  margenImpresion: PrintMargins
   activo: boolean
   esPredeterminado: boolean
   detalles: SqlVerificationDetail[]
@@ -1043,6 +1370,29 @@ function isBarcodeGraphicElement(element: Pick<EditorElement, 'tipo' | 'tipoFuen
   return normalizeTipoFuente(element.tipoFuente ?? element.fontFamily) === 'Barcode'
 }
 
+function getSqlFieldKey(element: Pick<EditorElement, 'tipo'>): Exclude<SqlDetalle['Campo'], 'TextoFijo' | 'Logo' | null> | null {
+  switch (element.tipo) {
+    case 'empresa':
+      return 'Empresa'
+    case 'descripcion':
+      return 'Descripcion'
+    case 'precio':
+      return 'Precio'
+    case 'codigoArticulo':
+      return 'CodigoArticulo'
+    case 'codigoBarra':
+      return 'CodigoBarra'
+    case 'codigoBarraTexto':
+      return 'CodigoBarra'
+    case 'stock':
+      return 'Stock'
+    case 'fecha':
+      return 'Fecha'
+    default:
+      return null
+  }
+}
+
 function getSqlTipoElemento(element: EditorElement): SqlTipoElemento {
   switch (element.tipo) {
     case 'empresa':
@@ -1057,6 +1407,8 @@ function getSqlTipoElemento(element: EditorElement): SqlTipoElemento {
       return 'texto'
     case 'linea':
       return 'linea'
+    case 'rectangulo':
+      return 'rectangulo'
     case 'textoFijo':
       return 'texto'
     default:
@@ -1085,6 +1437,8 @@ function getSqlCampo(element: EditorElement): SqlDetalle['Campo'] {
       return 'TextoFijo'
     case 'textoFijo':
       return 'TextoFijo'
+    case 'rectangulo':
+      return null
     case 'logo':
       return 'Logo'
     default:
@@ -1094,7 +1448,10 @@ function getSqlCampo(element: EditorElement): SqlDetalle['Campo'] {
 
 function getSqlTextoFijo(element: EditorElement): string | null {
   if (element.tipo === 'linea') return '------------'
+  if (element.tipo === 'rectangulo') return null
   if (element.tipo === 'textoFijo') return element.text && element.text.trim() ? element.text : null
+  if (element.tipo === 'precio') return element.text && element.text.trim() ? element.text : null
+  if (element.tipo === 'logo') return element.text || 'Logo'
   return null
 }
 
@@ -1124,6 +1481,102 @@ export function editorElementToSqlDetalle(element: EditorElement, order: number)
   }
 }
 
+function isLegacyDescripcionPlaceholderDetail(detail: Partial<SqlDetalle>): boolean {
+  const tipoElemento = String(detail.TipoElemento ?? '').trim().toLowerCase()
+  const campo = String(detail.Campo ?? '').trim().toLowerCase()
+  const textoFijo = String(detail.TextoFijo ?? '').trim()
+  return tipoElemento === 'texto' && campo === 'textofijo' && textoFijo === '{descripcion}'
+}
+
+function isSqlFieldKey(value: string | null): value is NonNullable<ReturnType<typeof getSqlFieldKey>> {
+  return value === 'Empresa' || value === 'Descripcion' || value === 'Precio' || value === 'CodigoArticulo' || value === 'CodigoBarra' || value === 'Stock' || value === 'Fecha'
+}
+
+export function sqlDetallesToEditorElements(details: Array<Partial<SqlDetalle> & { id?: string }>): EditorElement[] {
+  const explicitDescriptionExists = details.some((detail) => {
+    const tipoElemento = String(detail.TipoElemento ?? '').trim().toLowerCase()
+    const campo = String(detail.Campo ?? '').trim().toLowerCase()
+    return tipoElemento === 'texto' && campo === 'descripcion'
+  })
+
+  const seenFields = new Set<string>()
+  const next: EditorElement[] = []
+
+  details.forEach((detail, index) => {
+    if (isLegacyDescripcionPlaceholderDetail(detail) && explicitDescriptionExists) {
+      return
+    }
+
+    const nextDetail = isLegacyDescripcionPlaceholderDetail(detail)
+      ? {
+          ...detail,
+          TipoElemento: 'texto' as const,
+          Campo: 'Descripcion' as const,
+          TextoFijo: null,
+        }
+      : detail
+
+    const element = sqlDetalleToEditorElement(nextDetail, index)
+    const fieldKey = getSqlFieldKey(element)
+    if (isSqlFieldKey(fieldKey) && seenFields.has(fieldKey)) {
+      return
+    }
+    if (isSqlFieldKey(fieldKey)) {
+      seenFields.add(fieldKey)
+    }
+    next.push(element)
+  })
+
+  return next
+}
+
+export function normalizeDocumentForSql(document: LabelDocument): LabelDocument {
+  const explicitDescriptionExists = document.elementos.some((element) => element.tipo === 'descripcion')
+  const seenFields = new Set<NonNullable<ReturnType<typeof getSqlFieldKey>>>()
+  const elementos: EditorElement[] = []
+
+  for (const element of document.elementos) {
+    if (element.tipo === 'textoFijo' && String(element.text ?? '').trim().toLowerCase() === '{descripcion}' && explicitDescriptionExists) {
+      continue
+    }
+
+    const normalized: EditorElement = {
+      ...element,
+      x: Math.max(0, round(element.x)),
+      y: Math.max(0, round(element.y)),
+      width: Math.max(element.tipo === 'linea' ? 2 : 24, round(element.width)),
+      height: Math.max(element.tipo === 'linea' ? 2 : 12, round(element.height)),
+      text:
+        element.tipo === 'descripcion'
+          ? ''
+          : element.tipo === 'textoFijo'
+            ? (element.text ?? '').trim()
+            : element.tipo === 'precio'
+              ? (element.text ?? '').trim()
+              : element.text,
+    }
+
+    if (normalized.tipo === 'textoFijo' && normalized.text.toLowerCase() === '{descripcion}' && explicitDescriptionExists) {
+      continue
+    }
+
+    const fieldKey = getSqlFieldKey(normalized)
+    if (fieldKey && seenFields.has(fieldKey)) {
+      continue
+    }
+    if (fieldKey) {
+      seenFields.add(fieldKey)
+    }
+
+    elementos.push(normalized)
+  }
+
+  return {
+    ...document,
+    elementos,
+  }
+}
+
 export function sqlDetalleToEditorElement(detail: Partial<SqlDetalle> & { id?: string }, index = 0): EditorElement {
   const tipoFuente = normalizeTipoFuente(
     (detail as { TipoFuente?: unknown }).TipoFuente ??
@@ -1133,6 +1586,13 @@ export function sqlDetalleToEditorElement(detail: Partial<SqlDetalle> & { id?: s
   const tipo = (() => {
     const tipoElemento = String(detail.TipoElemento ?? '').trim().toLowerCase()
     const campo = String(detail.Campo ?? '').trim().toLowerCase()
+    const textoFijo = String(detail.TextoFijo ?? '').trim()
+    const ancho = toNumber(detail.Ancho, 0)
+    const alto = toNumber(detail.Alto, 0)
+
+    if (tipoElemento === 'texto' && campo === 'textofijo' && textoFijo.length === 0 && ancho >= 40 && alto >= 40) {
+      return 'rectangulo'
+    }
     if (tipoElemento === 'dato' || campo === 'empresa') return 'empresa'
     if (tipoElemento === 'texto' && campo === 'descripcion') return 'descripcion'
     if (tipoElemento === 'precio') return 'precio'
@@ -1142,8 +1602,10 @@ export function sqlDetalleToEditorElement(detail: Partial<SqlDetalle> & { id?: s
     if (campo === 'stock') return 'stock'
     if (campo === 'fecha') return 'fecha'
     if (tipoElemento === 'linea') return 'linea'
+    if (tipoElemento === 'rectangulo') return 'rectangulo'
     if (tipoElemento === 'texto' && campo === 'textofijo') return 'textoFijo'
-    if (campo === 'textofijo' && String(detail.TextoFijo ?? '').trim()) return 'textoFijo'
+    if (tipoElemento === 'precio' || campo === 'precio') return 'precio'
+    if (campo === 'textofijo' && textoFijo.length > 0) return 'textoFijo'
     if (campo === 'logo') return 'logo'
     return 'textoFijo'
   })()
@@ -1154,8 +1616,8 @@ export function sqlDetalleToEditorElement(detail: Partial<SqlDetalle> & { id?: s
     nombre: getElementName(tipo),
     x: toNumber(detail.X, 0),
     y: toNumber(detail.Y, 0),
-    width: Math.max(24, toNumber(detail.Ancho, 120)),
-    height: Math.max(12, toNumber(detail.Alto, 24)),
+    width: Math.max(tipo === 'linea' ? 2 : tipo === 'rectangulo' ? 24 : 24, toNumber(detail.Ancho, 120)),
+    height: Math.max(tipo === 'linea' ? 2 : tipo === 'rectangulo' ? 24 : 12, toNumber(detail.Alto, 24)),
     fontSize: clamp(toNumber(detail.TamanoFuente, 14), 8, 80),
     fontWeight: detail.Negrita ? 'bold' : 'normal',
     fontStyle: detail.Italica ? 'italic' : 'normal',
@@ -1170,6 +1632,8 @@ export function sqlDetalleToEditorElement(detail: Partial<SqlDetalle> & { id?: s
     text:
       tipo === 'linea'
         ? '------------'
+        : tipo === 'rectangulo'
+          ? ''
         : tipo === 'textoFijo'
           ? String(detail.TextoFijo ?? '')
           : '',
@@ -1201,6 +1665,7 @@ export function buildSqlVerificationSnapshot(document: LabelDocument): SqlVerifi
     nombre: layout.nombre,
     anchoPapelMm: layout.anchoPapelMm,
     altoMm: layout.altoPapelMm,
+    margenImpresion: normalizePrintMargins(document.margenImpresion),
     activo: document.activo,
     esPredeterminado: document.esPredeterminado,
     detalles: layout.items.map((item) => ({
@@ -1276,7 +1741,7 @@ export function parseAlfaScanDocumentJson(source: string, fallbackFormat: PaperF
         : []
 
   if (sqlRows.length > 0) {
-    const elementos = sqlRows.map((item, index) => sqlDetalleToEditorElement(item as Partial<SqlDetalle>, index))
+    const elementos = sqlDetallesToEditorElements(sqlRows as Array<Partial<SqlDetalle> & { id?: string }>)
     return {
       codigo: normalizeAlfaScanFormatCode(parsed.codigo),
       nombre: typeof parsed.nombre === 'string' ? parsed.nombre : fallbackFormat.nombre,
@@ -1284,6 +1749,7 @@ export function parseAlfaScanDocumentJson(source: string, fallbackFormat: PaperF
         typeof parsed.anchoPapelMm === 'number' ? Number(parsed.anchoPapelMm) : fallbackFormat.anchoPapelMm,
       altoPapelMm:
         typeof parsed.altoPapelMm === 'number' ? Number(parsed.altoPapelMm) : fallbackFormat.altoPapelMm,
+      margenImpresion: normalizePrintMargins((parsed as { margenImpresion?: Partial<PrintMargins> }).margenImpresion),
       activo: typeof parsed.activo === 'boolean' ? Boolean(parsed.activo) : true,
       esPredeterminado: typeof parsed.esPredeterminado === 'boolean' ? Boolean(parsed.esPredeterminado) : false,
       elementos,
@@ -1312,6 +1778,7 @@ export function parseAlfaScanDocumentJson(source: string, fallbackFormat: PaperF
       typeof (parsed as { altoPapelMm?: unknown }).altoPapelMm === 'number'
         ? Number((parsed as { altoPapelMm?: unknown }).altoPapelMm)
         : fallbackFormat.altoPapelMm,
+    margenImpresion: normalizePrintMargins((parsed as { margenImpresion?: Partial<PrintMargins> }).margenImpresion),
     activo:
       typeof (parsed as { activo?: unknown }).activo === 'boolean' ? Boolean((parsed as { activo?: unknown }).activo) : true,
     esPredeterminado:
@@ -1333,7 +1800,7 @@ export function buildAlfaScanSqlScript(document: LabelDocument): string {
   const detailRows = layout.items
     .map((item, index) => {
       const detalle = editorElementToSqlDetalle(item, index + 1)
-      const campoLiteral = `N'${escapeSqlLiteral(detalle.Campo)}'`
+      const campoLiteral = detalle.Campo === null ? 'NULL' : `N'${escapeSqlLiteral(detalle.Campo)}'`
       const textoFijoLiteral = detalle.TextoFijo === null ? 'NULL' : `N'${escapeSqlLiteral(detalle.TextoFijo)}'`
       const tipoFuenteLiteral = `N'${escapeSqlLiteral(detalle.TipoFuente || 'Default')}'`
 
@@ -1351,6 +1818,10 @@ DECLARE @Nombre NVARCHAR(100) = N'${reportName}';
 DECLARE @Descripcion NVARCHAR(250) = N'EditorScan';
 DECLARE @AnchoPapelMm INT = ${document.anchoPapelMm};
 DECLARE @AltoMm INT = ${document.altoPapelMm};
+DECLARE @MargenIzq INT = ${Math.max(0, Math.round(document.margenImpresion?.left || 0))};
+DECLARE @MargenSub INT = ${Math.max(0, Math.round(document.margenImpresion?.top || 0))};
+DECLARE @MargenDer INT = ${Math.max(0, Math.round(document.margenImpresion?.right || 0))};
+DECLARE @MargenInf INT = ${Math.max(0, Math.round(document.margenImpresion?.bottom || 0))};
 DECLARE @Activo BIT = ${reportActivo};
 DECLARE @EsPredeterminado BIT = ${reportEsPredeterminado};
 DECLARE @ReporteId INT;
@@ -1363,6 +1834,10 @@ BEGIN
     Descripcion = @Descripcion,
     AnchoPapelMm = @AnchoPapelMm,
     AltoMm = @AltoMm,
+    MargenIzq = @MargenIzq,
+    MargenSub = @MargenSub,
+    MargenDer = @MargenDer,
+    MargenInf = @MargenInf,
     Activo = @Activo,
     EsPredeterminado = @EsPredeterminado,
     FechaModificacion = GETDATE()
@@ -1376,6 +1851,10 @@ BEGIN
     Descripcion,
     AnchoPapelMm,
     AltoMm,
+    MargenIzq,
+    MargenSub,
+    MargenDer,
+    MargenInf,
     Activo,
     EsPredeterminado,
     FechaAlta,
@@ -1387,6 +1866,10 @@ BEGIN
     @Descripcion,
     @AnchoPapelMm,
     @AltoMm,
+    @MargenIzq,
+    @MargenSub,
+    @MargenDer,
+    @MargenInf,
     @Activo,
     @EsPredeterminado,
     GETDATE(),
